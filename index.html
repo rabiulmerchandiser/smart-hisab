@@ -1373,6 +1373,11 @@
         </div>
         স্মার্ট হিসাব
         <span style="width:44px;"></span>
+        <!-- Online Status -->
+        <div id="online-status" style="position:absolute;right:15px;bottom:6px;display:flex;align-items:center;gap:4px;">
+            <span id="online-dot" style="width:8px;height:8px;border-radius:50%;background:#4CAF50;display:inline-block;"></span>
+            <span id="online-label" style="font-size:10px;opacity:0.85;">অনলাইন</span>
+        </div>
     </div>
 
     <!-- FIXED TOP SECTION -->
@@ -1702,6 +1707,97 @@
     let currentTab = 'home';
     let barChartInlineInstance = null;
     let histView = 'monthly';
+    let isOnline = navigator.onLine;
+
+    // ── Offline Queue (পেন্ডিং sync) ────────────────────────────────
+    function getQueue() {
+        return JSON.parse(localStorage.getItem('sh_sync_queue') || '[]');
+    }
+    function saveQueue(q) {
+        localStorage.setItem('sh_sync_queue', JSON.stringify(q));
+    }
+    function addToQueue(action) {
+        const q = getQueue();
+        q.push({ ...action, queuedAt: Date.now() });
+        saveQueue(q);
+    }
+
+    // ── Online/Offline Detection ──────────────────────────────────────
+    window.addEventListener('online', async () => {
+        isOnline = true;
+        showToast('🌐 ইন্টারনেট ফিরে এসেছে! Sync হচ্ছে...');
+        updateOnlineStatus();
+        await syncPendingQueue();
+    });
+    window.addEventListener('offline', () => {
+        isOnline = false;
+        showToast('📴 অফলাইন মোড — ডাটা ডিভাইসে সেভ হচ্ছে');
+        updateOnlineStatus();
+    });
+
+    function updateOnlineStatus() {
+        const dot = document.getElementById('online-dot');
+        const label = document.getElementById('online-label');
+        if (!dot || !label) return;
+        if (isOnline) {
+            dot.style.background = '#4CAF50';
+            label.textContent = 'অনলাইন';
+        } else {
+            dot.style.background = '#f44336';
+            label.textContent = 'অফলাইন';
+        }
+    }
+
+    // ── Sync Pending Queue ────────────────────────────────────────────
+    async function syncPendingQueue() {
+        if (!isOnline || !currentUser) return;
+        const q = getQueue();
+        if (q.length === 0) return;
+
+        let synced = 0;
+        const failed = [];
+
+        for (const action of q) {
+            try {
+                if (action.type === 'insert_tx') {
+                    const { error } = await sb.from('transactions').upsert(action.data, { onConflict: 'id' });
+                    if (error) throw error;
+                } else if (action.type === 'update_tx') {
+                    const { error } = await sb.from('transactions').update(action.data).eq('id', action.id);
+                    if (error) throw error;
+                } else if (action.type === 'delete_tx') {
+                    const { error } = await sb.from('transactions').delete().eq('id', action.id);
+                    if (error) throw error;
+                } else if (action.type === 'upsert_budget') {
+                    const { error } = await sb.from('budgets').upsert(action.data, { onConflict: 'username,category' });
+                    if (error) throw error;
+                } else if (action.type === 'delete_budget') {
+                    const { error } = await sb.from('budgets').delete().eq('username', action.username).eq('category', action.category);
+                    if (error) throw error;
+                } else if (action.type === 'insert_cat') {
+                    const { error } = await sb.from('categories').insert(action.data);
+                    if (error && error.code !== '23505') throw error;
+                } else if (action.type === 'update_cat') {
+                    const { error } = await sb.from('categories').update({ name: action.newName }).eq('username', action.username).eq('type', action.catType).eq('name', action.oldName);
+                    if (error) throw error;
+                } else if (action.type === 'delete_cat') {
+                    const { error } = await sb.from('categories').delete().eq('username', action.username).eq('type', action.catType).eq('name', action.name);
+                    if (error) throw error;
+                }
+                synced++;
+            } catch (e) {
+                failed.push(action);
+            }
+        }
+
+        saveQueue(failed);
+        if (synced > 0) {
+            showToast(`✅ ${synced}টি পরিবর্তন Sync হয়েছে!`);
+        }
+    }
+
+    // ── LocalStorage Keys ─────────────────────────────────────────────
+    function lsKey(suffix) { return 'sh_' + suffix + '_' + (currentUser ? currentUser.username : ''); }
 
     // ── Loading Overlay ───────────────────────────────────────────────
     function showLoading(msg = 'লোড হচ্ছে...') {
@@ -1710,12 +1806,11 @@
             ov = document.createElement('div');
             ov.id = 'loading-overlay';
             ov.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
-            ov.innerHTML = `<div style="background:white;padding:24px 32px;border-radius:16px;text-align:center;font-size:15px;font-weight:600;color:#333;">${msg}</div>`;
+            ov.innerHTML = '<div style="background:white;padding:24px 32px;border-radius:16px;text-align:center;font-size:15px;font-weight:600;color:#333;"></div>';
             document.body.appendChild(ov);
-        } else {
-            ov.querySelector('div').textContent = msg;
-            ov.style.display = 'flex';
         }
+        ov.querySelector('div').textContent = msg;
+        ov.style.display = 'flex';
     }
     function hideLoading() {
         const ov = document.getElementById('loading-overlay');
@@ -1789,6 +1884,7 @@
         const errEl = document.getElementById('forgot-error');
         errEl.textContent = '';
         if (!username) { errEl.textContent = 'ইউজারনেম দিন'; return; }
+        if (!isOnline) { errEl.textContent = 'PIN রিসেট এর জন্য ইন্টারনেট দরকার'; return; }
         showLoading('যাচাই করছি...');
         const { data, error } = await sb.from('users').select('security_question').eq('username', username).single();
         hideLoading();
@@ -1811,7 +1907,7 @@
         const { data } = await sb.from('users').select('security_answer').eq('username', forgotVerifiedUser).single();
         hideLoading();
         if (!data || answer.toLowerCase() !== data.security_answer.toLowerCase().trim()) {
-            errEl.textContent = 'উত্তর সঠিক নয়, আবার চেষ্টা করুন';
+            errEl.textContent = 'উত্তর সঠিক নয়';
             return;
         }
         document.getElementById('forgot-step2').style.display = 'none';
@@ -1842,15 +1938,30 @@
         errEl.textContent = '';
         if (!username) { errEl.textContent = 'ইউজারনেম দিন'; return; }
         if (!pin || pin.length !== 4) { errEl.textContent = 'সঠিক ৪ সংখ্যার PIN দিন'; return; }
-        showLoading('লগইন হচ্ছে...');
-        const { data, error } = await sb.from('users').select('*').eq('username', username).single();
-        if (error || !data) { hideLoading(); errEl.textContent = 'ইউজারনেম পাওয়া যায়নি'; return; }
-        if (data.pin !== pin) { hideLoading(); errEl.textContent = 'PIN ভুল হয়েছে'; return; }
-        currentUser = { username: data.username, displayName: data.display_name };
-        userPin = data.pin;
+
+        if (isOnline) {
+            // অনলাইন লগইন
+            showLoading('লগইন হচ্ছে...');
+            const { data, error } = await sb.from('users').select('*').eq('username', username).single();
+            hideLoading();
+            if (error || !data) { errEl.textContent = 'ইউজারনেম পাওয়া যায়নি'; return; }
+            if (data.pin !== pin) { errEl.textContent = 'PIN ভুল হয়েছে'; return; }
+            currentUser = { username: data.username, displayName: data.display_name };
+            userPin = data.pin;
+            // offline এর জন্য সেভ করে রাখা
+            localStorage.setItem('sh_user_' + username, JSON.stringify({ username: data.username, displayName: data.display_name, pin: data.pin }));
+        } else {
+            // অফলাইন লগইন — localStorage থেকে
+            const saved = localStorage.getItem('sh_user_' + username);
+            if (!saved) { errEl.textContent = 'অফলাইনে প্রথমবার লগইন সম্ভব নয়'; return; }
+            const userData = JSON.parse(saved);
+            if (userData.pin !== pin) { errEl.textContent = 'PIN ভুল হয়েছে'; return; }
+            currentUser = { username: userData.username, displayName: userData.displayName };
+            userPin = userData.pin;
+        }
+
         document.getElementById('auth-screen').style.display = 'none';
         await init();
-        hideLoading();
     }
 
     async function doRegister() {
@@ -1863,6 +1974,7 @@
         const succEl = document.getElementById('reg-success');
         errEl.textContent = ''; succEl.textContent = '';
 
+        if (!isOnline) { errEl.textContent = 'নিবন্ধনের জন্য ইন্টারনেট দরকার'; return; }
         if (!username || username.length < 3) { errEl.textContent = 'ইউজারনেম কমপক্ষে ৩ অক্ষরের হতে হবে'; return; }
         if (!/^[a-zA-Z0-9_\u0980-\u09FF]+$/.test(username)) { errEl.textContent = 'ইউজারনেমে শুধু অক্ষর, সংখ্যা বা _ ব্যবহার করুন'; return; }
         if (!pin || pin.length !== 4 || !/^\d+$/.test(pin)) { errEl.textContent = 'PIN ঠিক ৪টি সংখ্যার হতে হবে'; return; }
@@ -1874,39 +1986,33 @@
         const { error } = await sb.from('users').insert({
             username: username.toLowerCase(),
             display_name: username,
-            pin,
-            security_question: secQuestion,
-            security_answer: secAnswer
+            pin, security_question: secQuestion, security_answer: secAnswer
         });
         hideLoading();
 
         if (error) {
-            if (error.code === '23505') errEl.textContent = 'এই ইউজারনেম আগেই নেওয়া হয়েছে';
-            else errEl.textContent = 'সমস্যা হয়েছে: ' + error.message;
+            errEl.textContent = error.code === '23505' ? 'এই ইউজারনেম আগেই নেওয়া হয়েছে' : 'সমস্যা হয়েছে: ' + error.message;
             return;
         }
 
-        // Default categories সেভ করা
         const catRows = [];
         defaultCategories.income.forEach(c => catRows.push({ username: username.toLowerCase(), type: 'income', name: c.name, color: c.color }));
         defaultCategories.expense.forEach(c => catRows.push({ username: username.toLowerCase(), type: 'expense', name: c.name, color: c.color }));
         await sb.from('categories').insert(catRows);
 
+        // offline এর জন্য সেভ
+        localStorage.setItem('sh_user_' + username.toLowerCase(), JSON.stringify({ username: username.toLowerCase(), displayName: username, pin }));
+
         succEl.textContent = '✅ নিবন্ধন সফল! এখন লগইন করুন।';
-        document.getElementById('reg-username').value = '';
-        document.getElementById('reg-pin').value = '';
-        document.getElementById('reg-pin2').value = '';
+        ['reg-username','reg-pin','reg-pin2','reg-sq-answer'].forEach(id => document.getElementById(id).value = '');
         document.getElementById('reg-sq').value = '';
-        document.getElementById('reg-sq-answer').value = '';
         setTimeout(() => switchAuthTab('login'), 1500);
     }
 
     async function logoutPrompt() {
         if (confirm(`${currentUser.displayName} — লগআউট করবেন?`)) {
             currentUser = null;
-            transactions = [];
-            budgets = {};
-            categories = {};
+            transactions = []; budgets = {}; categories = {};
             document.getElementById('auth-screen').style.display = 'flex';
             document.getElementById('app-container').style.display = 'none';
             document.getElementById('login-username').value = '';
@@ -1921,32 +2027,49 @@
     async function init() {
         showLoading('ডাটা লোড হচ্ছে...');
 
-        // Transactions
-        const { data: txData } = await sb.from('transactions').select('*').eq('username', currentUser.username).order('date', { ascending: false });
-        transactions = txData || [];
+        if (isOnline) {
+            // অনলাইন: Supabase থেকে লোড করো + localStorage এ cache রাখো
+            const { data: txData } = await sb.from('transactions').select('*').eq('username', currentUser.username).order('date', { ascending: false });
+            transactions = txData || [];
+            localStorage.setItem(lsKey('tx'), JSON.stringify(transactions));
 
-        // Categories
-        const { data: catData } = await sb.from('categories').select('*').eq('username', currentUser.username);
-        if (catData && catData.length > 0) {
-            categories = { income: [], expense: [] };
-            catData.forEach(c => {
-                if (c.type === 'income') categories.income.push({ name: c.name, color: c.color });
-                else categories.expense.push({ name: c.name, color: c.color });
-            });
+            const { data: catData } = await sb.from('categories').select('*').eq('username', currentUser.username);
+            if (catData && catData.length > 0) {
+                categories = { income: [], expense: [] };
+                catData.forEach(c => categories[c.type]?.push({ name: c.name, color: c.color }));
+            } else {
+                categories = JSON.parse(JSON.stringify(defaultCategories));
+            }
+            localStorage.setItem(lsKey('cat'), JSON.stringify(categories));
+
+            const { data: budData } = await sb.from('budgets').select('*').eq('username', currentUser.username);
+            budgets = {};
+            if (budData) budData.forEach(b => { budgets[b.category] = b.amount; });
+            localStorage.setItem(lsKey('bud'), JSON.stringify(budgets));
+
+            // পেন্ডিং offline কাজ sync করো
+            await syncPendingQueue();
+
         } else {
-            categories = JSON.parse(JSON.stringify(defaultCategories));
-        }
+            // অফলাইন: localStorage cache থেকে লোড করো
+            const txCache = localStorage.getItem(lsKey('tx'));
+            transactions = txCache ? JSON.parse(txCache) : [];
 
-        // Budgets
-        const { data: budData } = await sb.from('budgets').select('*').eq('username', currentUser.username);
-        budgets = {};
-        if (budData) budData.forEach(b => { budgets[b.category] = b.amount; });
+            const catCache = localStorage.getItem(lsKey('cat'));
+            categories = catCache ? JSON.parse(catCache) : JSON.parse(JSON.stringify(defaultCategories));
+
+            const budCache = localStorage.getItem(lsKey('bud'));
+            budgets = budCache ? JSON.parse(budCache) : {};
+
+            showToast('📴 অফলাইন মোড — সর্বশেষ ডাটা দেখাচ্ছে');
+        }
 
         document.getElementById('app-container').style.display = '';
         document.getElementById('user-indicator').textContent = '👤 ' + currentUser.displayName;
         const ddn = document.getElementById('user-dropdown-name');
         if (ddn) ddn.textContent = '👤 ' + currentUser.displayName;
 
+        updateOnlineStatus();
         populateFilters();
         populateCategorySelects();
         renderCategoryLists();
@@ -1969,18 +2092,14 @@
         const yearSelect = document.getElementById('filter-year');
         const yearOnlySelect = document.getElementById('filter-year-only');
         const now = new Date();
-        const currentMonth = now.getMonth();
-        const currentYear = now.getFullYear();
-
         monthSelect.innerHTML = '';
         months.forEach((m, i) => {
-            monthSelect.innerHTML += `<option value="${i}" ${i===currentMonth?'selected':''}>${m}</option>`;
+            monthSelect.innerHTML += `<option value="${i}" ${i===now.getMonth()?'selected':''}>${m}</option>`;
         });
-        yearSelect.innerHTML = '';
-        yearOnlySelect.innerHTML = '';
-        for (let y = currentYear; y >= currentYear - 10; y--) {
-            yearSelect.innerHTML += `<option value="${y}" ${y===currentYear?'selected':''}>${y}</option>`;
-            yearOnlySelect.innerHTML += `<option value="${y}" ${y===currentYear?'selected':''}>${y}</option>`;
+        yearSelect.innerHTML = ''; yearOnlySelect.innerHTML = '';
+        for (let y = now.getFullYear(); y >= now.getFullYear() - 10; y--) {
+            yearSelect.innerHTML += `<option value="${y}" ${y===now.getFullYear()?'selected':''}>${y}</option>`;
+            yearOnlySelect.innerHTML += `<option value="${y}" ${y===now.getFullYear()?'selected':''}>${y}</option>`;
         }
         monthSelect.onchange = renderHistory;
         yearSelect.onchange = renderHistory;
@@ -1990,15 +2109,12 @@
     }
 
     function populateCategorySelects() {
-        const incomeSelect = document.getElementById('income-category');
-        const expenseSelect = document.getElementById('expense-category');
-        incomeSelect.innerHTML = '<option value="">ক্যাটাগরি নির্বাচন করুন</option>';
-        categories.income.forEach(cat => {
-            incomeSelect.innerHTML += `<option value="${cat.name}">${escapeHtml(cat.name)}</option>`;
-        });
-        expenseSelect.innerHTML = '<option value="">ক্যাটাগরি নির্বাচন করুন</option>';
-        categories.expense.forEach(cat => {
-            expenseSelect.innerHTML += `<option value="${cat.name}">${escapeHtml(cat.name)}</option>`;
+        ['income','expense'].forEach(type => {
+            const sel = document.getElementById(type + '-category');
+            sel.innerHTML = '<option value="">ক্যাটাগরি নির্বাচন করুন</option>';
+            categories[type].forEach(cat => {
+                sel.innerHTML += `<option value="${cat.name}">${escapeHtml(cat.name)}</option>`;
+            });
         });
     }
 
@@ -2021,17 +2137,10 @@
     }
 
     // ── Entry Panel ───────────────────────────────────────────────────
-    function openEntryPanel() {
-        document.getElementById('entryPanel').classList.add('active');
-    }
-    function closeEntryPanel() {
-        document.getElementById('entryPanel').classList.remove('active');
-        clearEntryForms();
-    }
+    function openEntryPanel() { document.getElementById('entryPanel').classList.add('active'); }
+    function closeEntryPanel() { document.getElementById('entryPanel').classList.remove('active'); clearEntryForms(); }
     function clearEntryForms() {
-        ['income-amount','income-title','income-note','expense-amount','expense-title','expense-note'].forEach(id => {
-            document.getElementById(id).value = '';
-        });
+        ['income-amount','income-title','income-note','expense-amount','expense-title','expense-note'].forEach(id => document.getElementById(id).value = '');
         document.getElementById('income-category').value = '';
         document.getElementById('expense-category').value = '';
         setTodayDate();
@@ -2057,37 +2166,31 @@
         if (!category) { alert('অনুগ্রহ করে ক্যাটাগরি নির্বাচন করুন'); return; }
         if (!dateStr) { alert('অনুগ্রহ করে তারিখ নির্বাচন করুন'); return; }
 
-        const newTx = {
-            id: Date.now().toString(),
-            username: currentUser.username,
-            date: dateStr,
-            type,
-            amount,
-            title,
-            category,
-            note
-        };
+        const newTx = { id: Date.now().toString(), username: currentUser.username, date: dateStr, type, amount, title, category, note };
 
-        showLoading('সংরক্ষণ হচ্ছে...');
-        const { error } = await sb.from('transactions').insert(newTx);
-        hideLoading();
-
-        if (error) { alert('সমস্যা হয়েছে: ' + error.message); return; }
-
+        // সাথে সাথে UI তে দেখাও
         transactions.unshift(newTx);
+        localStorage.setItem(lsKey('tx'), JSON.stringify(transactions));
         render();
         closeEntryPanel();
+
+        if (isOnline) {
+            const { error } = await sb.from('transactions').insert(newTx);
+            if (error) {
+                // অনলাইনে ব্যর্থ হলে queue তে রাখো
+                addToQueue({ type: 'insert_tx', data: newTx });
+            }
+        } else {
+            // অফলাইনে queue তে রাখো
+            addToQueue({ type: 'insert_tx', data: newTx });
+            showToast('📴 অফলাইনে সেভ হয়েছে — ইন্টারনেট এলে sync হবে');
+        }
         alert(`${type === 'income' ? 'আয়' : 'ব্যয়'} সফলভাবে যুক্ত হয়েছে!`);
     }
 
     // ── Category Panel ────────────────────────────────────────────────
-    function openCategoryPanel() {
-        document.getElementById('categoryPanel').classList.add('active');
-        renderCategoryLists();
-    }
-    function closeCategoryPanel() {
-        document.getElementById('categoryPanel').classList.remove('active');
-    }
+    function openCategoryPanel() { document.getElementById('categoryPanel').classList.add('active'); renderCategoryLists(); }
+    function closeCategoryPanel() { document.getElementById('categoryPanel').classList.remove('active'); }
     function switchCatTab(event, type) {
         currentCatType = type;
         document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
@@ -2101,10 +2204,7 @@
             el.innerHTML = '';
             categories[type].forEach((cat, index) => {
                 el.innerHTML += `<div class="cat-item">
-                    <div class="cat-item-info">
-                        <span class="cat-color-dot" style="background-color:${cat.color}"></span>
-                        <span>${escapeHtml(cat.name)}</span>
-                    </div>
+                    <div class="cat-item-info"><span class="cat-color-dot" style="background-color:${cat.color}"></span><span>${escapeHtml(cat.name)}</span></div>
                     <div class="cat-actions">
                         <button class="cat-edit-btn" onclick="editCategory('${type}',${index})">সম্পাদনা</button>
                         <button class="cat-delete-btn" onclick="deleteCategory('${type}',${index})">মুছুন</button>
@@ -2118,18 +2218,22 @@
         const name = document.getElementById('newCatName').value.trim();
         const color = document.getElementById('newCatColor').value;
         if (!name) { alert('ক্যাটাগরির নাম দিন'); return; }
-        if (categories[currentCatType].some(c => c.name.toLowerCase() === name.toLowerCase())) {
-            alert('এই নামে ক্যাটাগরি আগে থেকেই আছে'); return;
-        }
-        showLoading('যুক্ত হচ্ছে...');
-        const { error } = await sb.from('categories').insert({ username: currentUser.username, type: currentCatType, name, color });
-        hideLoading();
-        if (error) { alert('সমস্যা হয়েছে'); return; }
+        if (categories[currentCatType].some(c => c.name.toLowerCase() === name.toLowerCase())) { alert('এই নামে ক্যাটাগরি আগে থেকেই আছে'); return; }
+
         categories[currentCatType].push({ name, color });
-        populateCategorySelects();
-        renderCategoryLists();
+        localStorage.setItem(lsKey('cat'), JSON.stringify(categories));
+        populateCategorySelects(); renderCategoryLists();
         document.getElementById('newCatName').value = '';
         document.getElementById('newCatColor').value = '#e91e63';
+
+        const catData = { username: currentUser.username, type: currentCatType, name, color };
+        if (isOnline) {
+            const { error } = await sb.from('categories').insert(catData);
+            if (error) addToQueue({ type: 'insert_cat', data: catData });
+        } else {
+            addToQueue({ type: 'insert_cat', data: catData });
+            showToast('📴 অফলাইনে সেভ হয়েছে');
+        }
         alert('ক্যাটাগরি যুক্ত হয়েছে!');
     }
 
@@ -2137,29 +2241,35 @@
         const cat = categories[type][index];
         const newName = prompt('নতুন নাম:', cat.name);
         if (!newName || !newName.trim()) return;
-        showLoading('আপডেট হচ্ছে...');
-        await sb.from('categories').update({ name: newName.trim() })
-            .eq('username', currentUser.username).eq('type', type).eq('name', cat.name);
-        hideLoading();
+        const oldName = cat.name;
         categories[type][index].name = newName.trim();
-        populateCategorySelects();
-        renderCategoryLists();
-        render();
+        localStorage.setItem(lsKey('cat'), JSON.stringify(categories));
+        populateCategorySelects(); renderCategoryLists(); render();
+
+        if (isOnline) {
+            await sb.from('categories').update({ name: newName.trim() }).eq('username', currentUser.username).eq('type', type).eq('name', oldName);
+        } else {
+            addToQueue({ type: 'update_cat', username: currentUser.username, catType: type, oldName, newName: newName.trim() });
+            showToast('📴 অফলাইনে সেভ হয়েছে');
+        }
     }
 
     async function deleteCategory(type, index) {
         if (!confirm('এই ক্যাটাগরি মুছে ফেলবেন?')) return;
         const cat = categories[type][index];
-        showLoading('মুছা হচ্ছে...');
-        await sb.from('categories').delete().eq('username', currentUser.username).eq('type', type).eq('name', cat.name);
-        hideLoading();
         categories[type].splice(index, 1);
-        populateCategorySelects();
-        renderCategoryLists();
-        render();
+        localStorage.setItem(lsKey('cat'), JSON.stringify(categories));
+        populateCategorySelects(); renderCategoryLists(); render();
+
+        if (isOnline) {
+            await sb.from('categories').delete().eq('username', currentUser.username).eq('type', type).eq('name', cat.name);
+        } else {
+            addToQueue({ type: 'delete_cat', username: currentUser.username, catType: type, name: cat.name });
+            showToast('📴 অফলাইনে সেভ হয়েছে');
+        }
     }
 
-    // ── Render Home ───────────────────────────────────────────────────
+    // ── Render ────────────────────────────────────────────────────────
     function updateCardTitles() {
         document.getElementById('card-income-title').textContent = 'আজকের আয়';
         document.getElementById('card-expense-title').textContent = 'আজকের ব্যয়';
@@ -2171,20 +2281,19 @@
         const todayStr = new Date().toISOString().split('T')[0];
         let listData = transactions.filter(item => item.date === todayStr);
 
-        // Search
         const searchQ = document.getElementById('search-input') ? document.getElementById('search-input').value.trim().toLowerCase() : '';
         const clearBtn = document.getElementById('search-clear');
         if (clearBtn) clearBtn.style.display = searchQ ? 'inline' : 'none';
         if (searchQ) {
             listData = listData.filter(item =>
                 item.title.toLowerCase().includes(searchQ) ||
-                (item.category || '').toLowerCase().includes(searchQ) ||
-                (item.note || '').toLowerCase().includes(searchQ)
+                (item.category||'').toLowerCase().includes(searchQ) ||
+                (item.note||'').toLowerCase().includes(searchQ)
             );
         }
 
         list.innerHTML = '';
-        [...listData].forEach(item => {
+        listData.forEach(item => {
             const typeText = item.type === 'income' ? 'আয়' : 'ব্যয়';
             const category = item.category || 'সাধারণ';
             list.innerHTML += `<div class="item" style="border-left-color:${item.type==='income'?'var(--income-green)':'var(--expense-red)'}">
@@ -2206,16 +2315,13 @@
                 </div>
             </div>`;
         });
-
         if (listData.length === 0) list.innerHTML = '<p class="empty-state">কোনো এন্ট্রি নেই</p>';
 
-        // Summary cards
         const todayData = transactions.filter(i => i.date === todayStr);
-        const todayIncome = todayData.filter(i => i.type === 'income').reduce((s,i) => s+i.amount, 0);
-        const todayExpense = todayData.filter(i => i.type === 'expense').reduce((s,i) => s+i.amount, 0);
-        const allIncome = transactions.filter(i => i.type === 'income').reduce((s,i) => s+i.amount, 0);
-        const allExpense = transactions.filter(i => i.type === 'expense').reduce((s,i) => s+i.amount, 0);
-
+        const todayIncome = todayData.filter(i=>i.type==='income').reduce((s,i)=>s+i.amount,0);
+        const todayExpense = todayData.filter(i=>i.type==='expense').reduce((s,i)=>s+i.amount,0);
+        const allIncome = transactions.filter(i=>i.type==='income').reduce((s,i)=>s+i.amount,0);
+        const allExpense = transactions.filter(i=>i.type==='expense').reduce((s,i)=>s+i.amount,0);
         document.getElementById('total-income').textContent = '৳' + todayIncome.toLocaleString('bn-BD');
         document.getElementById('total-expense').textContent = '৳' + todayExpense.toLocaleString('bn-BD');
         document.getElementById('balance').textContent = '৳' + (allIncome - allExpense).toLocaleString('bn-BD');
@@ -2243,50 +2349,34 @@
             if (!expenseStats[cat]) expenseStats[cat] = { amount: 0 };
             expenseStats[cat].amount += item.amount;
         });
-
-        const totalExpense = listData.filter(i => i.type === 'expense').reduce((s,i) => s+i.amount, 0);
+        const totalExpense = listData.filter(i=>i.type==='expense').reduce((s,i)=>s+i.amount,0);
         const labels = Object.keys(expenseStats);
-        const chartData = labels.map(cat => expenseStats[cat].amount);
-        const colors = labels.map(cat => getCategoryColor(cat));
-
         const chartCanvas = document.getElementById('categoryChart');
         const ctx = chartCanvas.getContext('2d');
         if (categoryChart) categoryChart.destroy();
-
         if (labels.length === 0) {
-            ctx.clearRect(0, 0, chartCanvas.width, chartCanvas.height);
-            ctx.font = '14px Arial'; ctx.fillStyle = '#999'; ctx.textAlign = 'center';
+            ctx.clearRect(0,0,chartCanvas.width,chartCanvas.height);
+            ctx.font='14px Arial'; ctx.fillStyle='#999'; ctx.textAlign='center';
             ctx.fillText('কোনো ব্যয় নেই', chartCanvas.width/2, chartCanvas.height/2);
             document.getElementById('categoryList').innerHTML = '<p style="text-align:center;color:#999;padding:20px;">কোনো ব্যয় নেই</p>';
             return;
         }
-
         categoryChart = new Chart(ctx, {
             type: 'doughnut',
-            data: { labels, datasets: [{ data: chartData, backgroundColor: colors, borderWidth: 3, borderColor: 'white' }] },
-            options: {
-                responsive: true, maintainAspectRatio: false, cutout: '65%',
-                plugins: {
-                    legend: { display: false },
-                    tooltip: { callbacks: { label: function(context) {
-                        const cat = context.label;
-                        const amount = expenseStats[cat].amount;
-                        const pct = totalExpense > 0 ? ((amount/totalExpense)*100).toFixed(1) : 0;
-                        return [`${cat}: ৳${amount.toLocaleString('bn-BD')}`, `মোট ব্যয়ের ${pct}%`];
-                    }}}
-                }
+            data: { labels, datasets: [{ data: labels.map(c=>expenseStats[c].amount), backgroundColor: labels.map(c=>getCategoryColor(c)), borderWidth: 3, borderColor: 'white' }] },
+            options: { responsive:true, maintainAspectRatio:false, cutout:'65%',
+                plugins: { legend:{display:false}, tooltip:{callbacks:{label:function(ctx){
+                    const cat=ctx.label, amount=expenseStats[cat].amount, pct=totalExpense>0?((amount/totalExpense)*100).toFixed(1):0;
+                    return [`${cat}: ৳${amount.toLocaleString('bn-BD')}`,`মোট ব্যয়ের ${pct}%`];
+                }}}}
             }
         });
-
         const categoryList = document.getElementById('categoryList');
         categoryList.innerHTML = '';
-        labels.sort((a,b) => expenseStats[b].amount - expenseStats[a].amount).forEach(cat => {
-            const amount = expenseStats[cat].amount;
-            const color = getCategoryColor(cat);
-            const pct = totalExpense > 0 ? ((amount/totalExpense)*100).toFixed(1) : 0;
-            const div = document.createElement('div');
-            div.className = 'category-item';
-            div.innerHTML = `<div class="category-name"><span class="color-dot" style="background-color:${color};"></span><span>${escapeHtml(cat)}</span></div>
+        labels.sort((a,b)=>expenseStats[b].amount-expenseStats[a].amount).forEach(cat => {
+            const amount=expenseStats[cat].amount, color=getCategoryColor(cat), pct=totalExpense>0?((amount/totalExpense)*100).toFixed(1):0;
+            const div=document.createElement('div'); div.className='category-item';
+            div.innerHTML=`<div class="category-name"><span class="color-dot" style="background-color:${color};"></span><span>${escapeHtml(cat)}</span></div>
                 <div style="display:flex;align-items:center;gap:6px;">
                     <span style="font-size:11px;font-weight:700;color:#fff;background:${color};padding:2px 7px;border-radius:10px;min-width:38px;text-align:center;">${pct}%</span>
                     <span class="category-amount">৳${amount.toLocaleString('bn-BD')}</span>
@@ -2297,20 +2387,12 @@
 
     // ── Edit & Delete ─────────────────────────────────────────────────
     let editingId = null;
-
-    function toggleDropdown(e, id) {
-        e.stopPropagation();
-        closeAllDropdowns();
-        const dd = document.getElementById('dd-' + id);
-        if (dd) dd.classList.toggle('open');
-    }
-    function closeAllDropdowns() {
-        document.querySelectorAll('.dropdown-menu.open').forEach(d => d.classList.remove('open'));
-    }
+    function toggleDropdown(e, id) { e.stopPropagation(); closeAllDropdowns(); const dd=document.getElementById('dd-'+id); if(dd) dd.classList.toggle('open'); }
+    function closeAllDropdowns() { document.querySelectorAll('.dropdown-menu.open').forEach(d=>d.classList.remove('open')); }
     document.addEventListener('click', closeAllDropdowns);
 
     function openEditModal(id) {
-        const item = transactions.find(i => i.id === id);
+        const item = transactions.find(i=>i.id===id);
         if (!item) return;
         editingId = id;
         document.getElementById('edit-type').value = item.type;
@@ -2332,10 +2414,7 @@
             sel.appendChild(opt);
         });
     }
-    function closeEditModal() {
-        document.getElementById('editModal').classList.remove('active');
-        editingId = null;
-    }
+    function closeEditModal() { document.getElementById('editModal').classList.remove('active'); editingId = null; }
 
     async function saveEdit() {
         const amount = parseFloat(document.getElementById('edit-amount').value);
@@ -2345,20 +2424,24 @@
         const type = document.getElementById('edit-type').value;
         const note = document.getElementById('edit-note').value.trim();
 
-        if (!amount || amount <= 0) { alert('সঠিক পরিমাণ দিন'); return; }
+        if (!amount||amount<=0) { alert('সঠিক পরিমাণ দিন'); return; }
         if (!title) { alert('বিবরণ দিন'); return; }
         if (!category) { alert('ক্যাটাগরি নির্বাচন করুন'); return; }
         if (!dateStr) { alert('তারিখ নির্বাচন করুন'); return; }
 
-        showLoading('আপডেট হচ্ছে...');
-        const { error } = await sb.from('transactions').update({ type, amount, title, category, date: dateStr, note }).eq('id', editingId);
-        hideLoading();
-        if (error) { alert('সমস্যা হয়েছে'); return; }
+        const idx = transactions.findIndex(i=>i.id===editingId);
+        if (idx !== -1) transactions[idx] = { ...transactions[idx], type, amount, title, category, date:dateStr, note };
+        localStorage.setItem(lsKey('tx'), JSON.stringify(transactions));
+        render(); closeEditModal();
 
-        const idx = transactions.findIndex(i => i.id === editingId);
-        if (idx !== -1) transactions[idx] = { ...transactions[idx], type, amount, title, category, date: dateStr, note };
-        render();
-        closeEditModal();
+        const updateData = { type, amount, title, category, date: dateStr, note };
+        if (isOnline) {
+            const { error } = await sb.from('transactions').update(updateData).eq('id', editingId);
+            if (error) addToQueue({ type: 'update_tx', id: editingId, data: updateData });
+        } else {
+            addToQueue({ type: 'update_tx', id: editingId, data: updateData });
+            showToast('📴 অফলাইনে সেভ হয়েছে');
+        }
         alert('এন্ট্রি সফলভাবে আপডেট হয়েছে!');
     }
 
@@ -2367,13 +2450,19 @@
         if (enteredPin === null) return;
         if (enteredPin !== userPin) { alert('ভুল PIN!'); return; }
         if (!confirm('এই এন্ট্রি মুছে ফেলবেন?')) return;
-        showLoading('মুছা হচ্ছে...');
-        const { error } = await sb.from('transactions').delete().eq('id', id);
-        hideLoading();
-        if (error) { alert('সমস্যা হয়েছে'); return; }
-        transactions = transactions.filter(i => i.id !== id);
+
+        transactions = transactions.filter(i=>i.id!==id);
+        localStorage.setItem(lsKey('tx'), JSON.stringify(transactions));
         render();
         if (currentTab === 'history') renderHistory();
+
+        if (isOnline) {
+            const { error } = await sb.from('transactions').delete().eq('id', id);
+            if (error) addToQueue({ type: 'delete_tx', id });
+        } else {
+            addToQueue({ type: 'delete_tx', id });
+            showToast('📴 অফলাইনে মুছা হয়েছে');
+        }
         alert('এন্ট্রি মুছে দেওয়া হয়েছে');
     }
 
@@ -2396,83 +2485,69 @@
         const newPin = prompt('নতুন ৪ সংখ্যার PIN দিন:');
         if (newPin === null) return;
         if (!newPin || newPin.length !== 4 || !/^\d+$/.test(newPin)) { alert('PIN ঠিক ৪টি সংখ্যার হতে হবে!'); return; }
-        showLoading('সংরক্ষণ হচ্ছে...');
-        await sb.from('users').update({ pin: newPin }).eq('username', currentUser.username);
-        hideLoading();
+
         userPin = newPin;
+        const savedUser = JSON.parse(localStorage.getItem('sh_user_' + currentUser.username) || '{}');
+        savedUser.pin = newPin;
+        localStorage.setItem('sh_user_' + currentUser.username, JSON.stringify(savedUser));
+
+        if (isOnline) {
+            await sb.from('users').update({ pin: newPin }).eq('username', currentUser.username);
+        } else {
+            showToast('📴 PIN অফলাইনে পরিবর্তন হয়েছে — ইন্টারনেট এলে sync হবে');
+        }
         alert('PIN সফলভাবে পরিবর্তন করা হয়েছে!');
     }
 
-    // ── History Tab ───────────────────────────────────────────────────
+    // ── History ───────────────────────────────────────────────────────
     function setHistView(event, view) {
         histView = view;
-        document.querySelectorAll('#page-history .view-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('#page-history .view-btn').forEach(b=>b.classList.remove('active'));
         event.target.classList.add('active');
-        document.getElementById('hist-monthly-filter').style.display = view === 'monthly' ? 'flex' : 'none';
-        document.getElementById('hist-yearly-filter').style.display = view === 'yearly' ? 'flex' : 'none';
-        document.getElementById('hist-custom-filter').style.display = view === 'custom' ? 'block' : 'none';
+        document.getElementById('hist-monthly-filter').style.display = view==='monthly'?'flex':'none';
+        document.getElementById('hist-yearly-filter').style.display = view==='yearly'?'flex':'none';
+        document.getElementById('hist-custom-filter').style.display = view==='custom'?'block':'none';
         renderHistory();
     }
 
     function renderHistory() {
-        const q = (document.getElementById('history-search')?.value || '').trim().toLowerCase();
+        const q = (document.getElementById('history-search')?.value||'').trim().toLowerCase();
         const container = document.getElementById('history-list');
         if (!container) return;
-
         const now = new Date();
-        const selM = parseInt(document.getElementById('filter-month')?.value ?? now.getMonth());
-        const selY = parseInt(document.getElementById('filter-year')?.value ?? now.getFullYear());
-        const selYOnly = parseInt(document.getElementById('filter-year-only')?.value ?? now.getFullYear());
-        const startDate = document.getElementById('filter-start-date')?.value || '';
-        const endDate = document.getElementById('filter-end-date')?.value || '';
+        const selM = parseInt(document.getElementById('filter-month')?.value??now.getMonth());
+        const selY = parseInt(document.getElementById('filter-year')?.value??now.getFullYear());
+        const selYOnly = parseInt(document.getElementById('filter-year-only')?.value??now.getFullYear());
+        const startDate = document.getElementById('filter-start-date')?.value||'';
+        const endDate = document.getElementById('filter-end-date')?.value||'';
 
-        let data = [...transactions].sort((a,b) => b.date.localeCompare(a.date));
+        let data = [...transactions].sort((a,b)=>b.date.localeCompare(a.date));
+        if (histView==='monthly') data = data.filter(t=>{const d=new Date(t.date+'T00:00:00');return d.getMonth()===selM&&d.getFullYear()===selY;});
+        else if (histView==='yearly') data = data.filter(t=>new Date(t.date+'T00:00:00').getFullYear()===selYOnly);
+        else if (histView==='custom'&&startDate&&endDate) data = data.filter(t=>t.date>=startDate&&t.date<=endDate);
+        else if (histView==='custom') data = [];
 
-        if (histView === 'monthly') {
-            data = data.filter(t => {
-                const d = new Date(t.date + 'T00:00:00');
-                return d.getMonth() === selM && d.getFullYear() === selY;
-            });
-        } else if (histView === 'yearly') {
-            data = data.filter(t => new Date(t.date + 'T00:00:00').getFullYear() === selYOnly);
-        } else if (histView === 'custom' && startDate && endDate) {
-            data = data.filter(t => t.date >= startDate && t.date <= endDate);
-        } else if (histView === 'custom') {
-            data = [];
-        }
+        const hIncome=data.filter(i=>i.type==='income').reduce((s,i)=>s+i.amount,0);
+        const hExpense=data.filter(i=>i.type==='expense').reduce((s,i)=>s+i.amount,0);
+        const lbl = {monthly:'মাসিক',yearly:'বার্ষিক',custom:'নির্বাচিত'}[histView]||'';
+        const set = (id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
+        set('hist-total-income','৳'+hIncome.toLocaleString('bn-BD'));
+        set('hist-total-expense','৳'+hExpense.toLocaleString('bn-BD'));
+        set('hist-balance','৳'+(hIncome-hExpense).toLocaleString('bn-BD'));
+        set('hist-income-title',lbl+' আয়');
+        set('hist-expense-title',lbl+' ব্যয়');
 
-        const hIncome = data.filter(i=>i.type==='income').reduce((s,i)=>s+i.amount,0);
-        const hExpense = data.filter(i=>i.type==='expense').reduce((s,i)=>s+i.amount,0);
-        const labels = { monthly:'মাসিক', yearly:'বার্ষিক', custom:'নির্বাচিত' };
-        const lbl = labels[histView] || '';
-        const hii = document.getElementById('hist-total-income');
-        const hei = document.getElementById('hist-total-expense');
-        const hbi = document.getElementById('hist-balance');
-        const hit = document.getElementById('hist-income-title');
-        const het = document.getElementById('hist-expense-title');
-        if (hii) hii.textContent = '৳' + hIncome.toLocaleString('bn-BD');
-        if (hei) hei.textContent = '৳' + hExpense.toLocaleString('bn-BD');
-        if (hbi) hbi.textContent = '৳' + (hIncome - hExpense).toLocaleString('bn-BD');
-        if (hit) hit.textContent = lbl + ' আয়';
-        if (het) het.textContent = lbl + ' ব্যয়';
+        if (q) data=data.filter(t=>t.title.toLowerCase().includes(q)||(t.category||'').toLowerCase().includes(q)||(t.note||'').toLowerCase().includes(q));
+        if (data.length===0) { container.innerHTML='<p class="empty-state">কোনো লেনদেন নেই</p>'; return; }
 
-        if (q) data = data.filter(t =>
-            t.title.toLowerCase().includes(q) ||
-            (t.category||'').toLowerCase().includes(q) ||
-            (t.note||'').toLowerCase().includes(q)
-        );
-
-        if (data.length === 0) { container.innerHTML = '<p class="empty-state">কোনো লেনদেন নেই</p>'; return; }
-
-        container.innerHTML = '';
-        data.forEach(item => {
-            const typeText = item.type === 'income' ? 'আয়' : 'ব্যয়';
-            const color = item.type === 'income' ? 'var(--income-green)' : 'var(--expense-red)';
-            container.innerHTML += `<div class="item" style="border-left-color:${color}">
-                <div style="flex:1;">
-                    <b>${escapeHtml(item.title)}</b><span class="cat-badge">${escapeHtml(item.category||'সাধারণ')}</span>
-                    <br><small style="color:#888">${formatDate(item.date)}</small>
-                    ${item.note ? `<div class="item-note">📝 ${escapeHtml(item.note)}</div>` : ''}
+        container.innerHTML='';
+        data.forEach(item=>{
+            const typeText=item.type==='income'?'আয়':'ব্যয়';
+            const color=item.type==='income'?'var(--income-green)':'var(--expense-red)';
+            container.innerHTML+=`<div class="item" style="border-left-color:${color}">
+                <div style="flex:1;"><b>${escapeHtml(item.title)}</b><span class="cat-badge">${escapeHtml(item.category||'সাধারণ')}</span>
+                <br><small style="color:#888">${formatDate(item.date)}</small>
+                ${item.note?`<div class="item-note">📝 ${escapeHtml(item.note)}</div>`:''}
                 </div>
                 <div style="text-align:right;white-space:nowrap;display:flex;align-items:center;gap:2px;">
                     <div style="color:${color};font-weight:bold">${typeText} ৳${item.amount.toLocaleString('bn-BD')}</div>
@@ -2492,168 +2567,122 @@
     // ── Tab Navigation ────────────────────────────────────────────────
     function switchTab(tab) {
         currentTab = tab;
-        const pc = document.getElementById('pageContent');
-        if (pc) pc.scrollTop = 0;
-        ['list','page-history','page-analytics','page-settings'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) { el.style.display = 'none'; el.style.flexDirection = ''; }
+        const pc=document.getElementById('pageContent'); if(pc) pc.scrollTop=0;
+        ['list','page-history','page-analytics','page-settings'].forEach(id=>{
+            const el=document.getElementById(id); if(el){el.style.display='none';el.style.flexDirection='';}
         });
-        const fixedTop = document.querySelector('.fixed-top-section');
-        const budgetSec = document.getElementById('budgetSection');
-        if (tab === 'home') {
-            if (fixedTop) fixedTop.style.display = '';
-            if (budgetSec) budgetSec.style.display = '';
-            document.getElementById('list').style.display = '';
-            document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+        const fixedTop=document.querySelector('.fixed-top-section');
+        const budgetSec=document.getElementById('budgetSection');
+        document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
+        if (tab==='home') {
+            if(fixedTop) fixedTop.style.display=''; if(budgetSec) budgetSec.style.display='';
+            document.getElementById('list').style.display='';
             document.getElementById('nav-home').classList.add('active');
-        } else if (tab === 'history') {
-            if (fixedTop) fixedTop.style.display = 'none';
-            if (budgetSec) budgetSec.style.display = 'none';
-            const histPage = document.getElementById('page-history');
-            histPage.style.display = 'flex';
-            histPage.style.flexDirection = 'column';
-            histPage.style.height = '100%';
-            document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+        } else if (tab==='history') {
+            if(fixedTop) fixedTop.style.display='none'; if(budgetSec) budgetSec.style.display='none';
+            const hp=document.getElementById('page-history');
+            hp.style.display='flex'; hp.style.flexDirection='column'; hp.style.height='100%';
             document.getElementById('nav-history').classList.add('active');
-            populateFilters();
-            renderHistory();
-        } else if (tab === 'analytics') {
-            if (fixedTop) fixedTop.style.display = 'none';
-            if (budgetSec) budgetSec.style.display = 'none';
-            document.getElementById('page-analytics').style.display = 'block';
-            document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+            populateFilters(); renderHistory();
+        } else if (tab==='analytics') {
+            if(fixedTop) fixedTop.style.display='none'; if(budgetSec) budgetSec.style.display='none';
+            document.getElementById('page-analytics').style.display='block';
             document.getElementById('nav-analytics').classList.add('active');
-            setTimeout(() => { updateChartAndList(transactions); renderBarChartInline(); }, 50);
-        } else if (tab === 'settings') {
-            if (fixedTop) fixedTop.style.display = 'none';
-            if (budgetSec) budgetSec.style.display = 'none';
-            document.getElementById('page-settings').style.display = 'block';
-            document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+            setTimeout(()=>{ updateChartAndList(transactions); renderBarChartInline(); },50);
+        } else if (tab==='settings') {
+            if(fixedTop) fixedTop.style.display='none'; if(budgetSec) budgetSec.style.display='none';
+            document.getElementById('page-settings').style.display='block';
             document.getElementById('nav-settings').classList.add('active');
         }
     }
 
     // ── Analytics ─────────────────────────────────────────────────────
     function renderBarChartInline() {
-        const months = ['জানু','ফেব্রু','মার্চ','এপ্রিল','মে','জুন','জুলাই','আগস্ট','সেপ্টে','অক্টো','নভে','ডিসে'];
-        const now = new Date();
-        const labels = [], incomeData = [], expenseData = [];
-        for (let i = 5; i >= 0; i--) {
-            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-            const m = d.getMonth(), y = d.getFullYear();
+        const months=['জানু','ফেব্রু','মার্চ','এপ্রিল','মে','জুন','জুলাই','আগস্ট','সেপ্টে','অক্টো','নভে','ডিসে'];
+        const now=new Date(); const labels=[],incomeData=[],expenseData=[];
+        for(let i=5;i>=0;i--){
+            const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+            const m=d.getMonth(),y=d.getFullYear();
             labels.push(months[m]);
-            const mTx = transactions.filter(t => {
-                const td = new Date(t.date + 'T00:00:00');
-                return td.getMonth() === m && td.getFullYear() === y;
-            });
+            const mTx=transactions.filter(t=>{const td=new Date(t.date+'T00:00:00');return td.getMonth()===m&&td.getFullYear()===y;});
             incomeData.push(mTx.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0));
             expenseData.push(mTx.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0));
         }
-        if (barChartInlineInstance) barChartInlineInstance.destroy();
-        const canvas = document.getElementById('barChartInline');
-        if (!canvas) return;
-        barChartInlineInstance = new Chart(canvas.getContext('2d'), {
-            type: 'bar',
-            data: { labels, datasets: [
-                { label: 'আয়', data: incomeData, backgroundColor: '#4CAF50', borderRadius: 4 },
-                { label: 'ব্যয়', data: expenseData, backgroundColor: '#e91e63', borderRadius: 4 }
-            ]},
-            options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } }
+        if(barChartInlineInstance) barChartInlineInstance.destroy();
+        const canvas=document.getElementById('barChartInline'); if(!canvas) return;
+        barChartInlineInstance=new Chart(canvas.getContext('2d'),{type:'bar',
+            data:{labels,datasets:[{label:'আয়',data:incomeData,backgroundColor:'#4CAF50',borderRadius:4},{label:'ব্যয়',data:expenseData,backgroundColor:'#e91e63',borderRadius:4}]},
+            options:{responsive:true,plugins:{legend:{position:'top'}},scales:{y:{beginAtZero:true}}}
         });
     }
 
-    // ── Bar Chart Modal ───────────────────────────────────────────────
-    function openBarChartModal() {
-        document.getElementById('barChartModal').classList.add('active');
-        renderBarChart();
-    }
-    function closeBarChartModal() {
-        document.getElementById('barChartModal').classList.remove('active');
-    }
+    function openBarChartModal() { document.getElementById('barChartModal').classList.add('active'); renderBarChart(); }
+    function closeBarChartModal() { document.getElementById('barChartModal').classList.remove('active'); }
     function renderBarChart() {
-        const months = ['জানু','ফেব্রু','মার্চ','এপ্রিল','মে','জুন','জুলাই','আগস্ট','সেপ্টে','অক্টো','নভে','ডিসে'];
-        const now = new Date();
-        const labels = [], incomeData = [], expenseData = [];
-        for (let i = 5; i >= 0; i--) {
-            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-            const m = d.getMonth(), y = d.getFullYear();
-            labels.push(months[m] + ' \'' + String(y).slice(2));
-            const mTx = transactions.filter(t => { const td = new Date(t.date+'T00:00:00'); return td.getMonth()===m && td.getFullYear()===y; });
+        const months=['জানু','ফেব্রু','মার্চ','এপ্রিল','মে','জুন','জুলাই','আগস্ট','সেপ্টে','অক্টো','নভে','ডিসে'];
+        const now=new Date(); const labels=[],incomeData=[],expenseData=[];
+        for(let i=5;i>=0;i--){
+            const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+            const m=d.getMonth(),y=d.getFullYear();
+            labels.push(months[m]+"'"+String(y).slice(2));
+            const mTx=transactions.filter(t=>{const td=new Date(t.date+'T00:00:00');return td.getMonth()===m&&td.getFullYear()===y;});
             incomeData.push(mTx.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0));
             expenseData.push(mTx.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0));
         }
-        if (barChartInstance) barChartInstance.destroy();
-        barChartInstance = new Chart(document.getElementById('barChart').getContext('2d'), {
-            type: 'bar',
-            data: { labels, datasets: [
-                { label: 'আয়', data: incomeData, backgroundColor: '#4CAF50', borderRadius: 4 },
-                { label: 'ব্যয়', data: expenseData, backgroundColor: '#e91e63', borderRadius: 4 }
-            ]},
-            options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } }
+        if(barChartInstance) barChartInstance.destroy();
+        barChartInstance=new Chart(document.getElementById('barChart').getContext('2d'),{type:'bar',
+            data:{labels,datasets:[{label:'আয়',data:incomeData,backgroundColor:'#4CAF50',borderRadius:4},{label:'ব্যয়',data:expenseData,backgroundColor:'#e91e63',borderRadius:4}]},
+            options:{responsive:true,plugins:{legend:{position:'top'}},scales:{y:{beginAtZero:true}}}
         });
     }
 
     // ── Budget ────────────────────────────────────────────────────────
     function openBudgetModal() {
-        const modal = document.getElementById('budgetModal');
-        const container = document.getElementById('budgetInputs');
-        container.innerHTML = '';
-        categories.expense.forEach(cat => {
-            const val = budgets[cat.name] || '';
-            container.innerHTML += `<div class="form-group">
-                <label style="display:flex;align-items:center;gap:6px;">
-                    <span style="width:12px;height:12px;border-radius:50%;background:${cat.color};display:inline-block;"></span>
-                    ${escapeHtml(cat.name)}
-                </label>
+        const container=document.getElementById('budgetInputs'); container.innerHTML='';
+        categories.expense.forEach(cat=>{
+            const val=budgets[cat.name]||'';
+            container.innerHTML+=`<div class="form-group">
+                <label style="display:flex;align-items:center;gap:6px;"><span style="width:12px;height:12px;border-radius:50%;background:${cat.color};display:inline-block;"></span>${escapeHtml(cat.name)}</label>
                 <input type="number" id="budget-${escapeHtml(cat.name)}" placeholder="মাসিক সীমা (৳)" value="${val}" style="border:2px solid #ddd;border-radius:8px;padding:10px;width:100%;font-size:14px;">
             </div>`;
         });
-        modal.classList.add('active');
+        document.getElementById('budgetModal').classList.add('active');
     }
-    function closeBudgetModal() {
-        document.getElementById('budgetModal').classList.remove('active');
-    }
+    function closeBudgetModal() { document.getElementById('budgetModal').classList.remove('active'); }
+
     async function saveBudgets() {
-        showLoading('সংরক্ষণ হচ্ছে...');
         for (const cat of categories.expense) {
-            const el = document.getElementById('budget-' + cat.name);
-            if (el && el.value) {
-                const amount = parseFloat(el.value);
-                await sb.from('budgets').upsert({ username: currentUser.username, category: cat.name, amount }, { onConflict: 'username,category' });
-                budgets[cat.name] = amount;
+            const el=document.getElementById('budget-'+cat.name);
+            if (el&&el.value) {
+                const amount=parseFloat(el.value);
+                budgets[cat.name]=amount;
+                if(isOnline) await sb.from('budgets').upsert({username:currentUser.username,category:cat.name,amount},{onConflict:'username,category'});
+                else addToQueue({type:'upsert_budget',data:{username:currentUser.username,category:cat.name,amount}});
             } else {
-                await sb.from('budgets').delete().eq('username', currentUser.username).eq('category', cat.name);
                 delete budgets[cat.name];
+                if(isOnline) await sb.from('budgets').delete().eq('username',currentUser.username).eq('category',cat.name);
+                else addToQueue({type:'delete_budget',username:currentUser.username,category:cat.name});
             }
         }
-        hideLoading();
-        closeBudgetModal();
-        renderBudgetSection();
-        showToast('✅ বাজেট সংরক্ষিত হয়েছে!');
+        localStorage.setItem(lsKey('bud'), JSON.stringify(budgets));
+        closeBudgetModal(); renderBudgetSection();
+        showToast(isOnline?'✅ বাজেট সংরক্ষিত হয়েছে!':'📴 অফলাইনে সেভ হয়েছে');
     }
+
     function renderBudgetSection() {
-        const section = document.getElementById('budgetSection');
-        const bars = document.getElementById('budgetBars');
-        if (!section || !bars) return;
-        const hasBudget = Object.keys(budgets).length > 0;
-        section.classList.toggle('visible', hasBudget);
-        if (!hasBudget) return;
-        const now = new Date();
-        const selM = now.getMonth(), selY = now.getFullYear();
-        const monthExp = transactions.filter(i => {
-            if (i.type !== 'expense') return false;
-            const d = new Date(i.date + 'T00:00:00');
-            return d.getMonth() === selM && d.getFullYear() === selY;
-        });
-        const catExp = {};
-        monthExp.forEach(i => { catExp[i.category||'সাধারণ'] = (catExp[i.category||'সাধারণ']||0) + i.amount; });
-        bars.innerHTML = '';
-        Object.entries(budgets).forEach(([cat, limit]) => {
-            const spent = catExp[cat] || 0;
-            const pct = Math.min((spent/limit)*100, 100).toFixed(0);
-            const over = spent > limit;
-            const color = over ? '#f44336' : spent/limit > 0.8 ? '#ff9800' : '#4caf50';
-            bars.innerHTML += `<div class="budget-item">
+        const section=document.getElementById('budgetSection'); const bars=document.getElementById('budgetBars');
+        if(!section||!bars) return;
+        const hasBudget=Object.keys(budgets).length>0;
+        section.classList.toggle('visible',hasBudget); if(!hasBudget) return;
+        const now=new Date(); const selM=now.getMonth(),selY=now.getFullYear();
+        const catExp={};
+        transactions.filter(i=>{if(i.type!=='expense')return false;const d=new Date(i.date+'T00:00:00');return d.getMonth()===selM&&d.getFullYear()===selY;})
+            .forEach(i=>{catExp[i.category||'সাধারণ']=(catExp[i.category||'সাধারণ']||0)+i.amount;});
+        bars.innerHTML='';
+        Object.entries(budgets).forEach(([cat,limit])=>{
+            const spent=catExp[cat]||0,pct=Math.min((spent/limit)*100,100).toFixed(0),over=spent>limit;
+            const color=over?'#f44336':spent/limit>0.8?'#ff9800':'#4caf50';
+            bars.innerHTML+=`<div class="budget-item">
                 <div class="budget-label">
                     <span ${over?'class="budget-warn"':''}>${escapeHtml(cat)}</span>
                     <span ${over?'class="budget-warn"':''}>৳${spent.toLocaleString('bn-BD')} / ৳${limit.toLocaleString('bn-BD')} (${pct}%)</span>
@@ -2665,116 +2694,83 @@
 
     // ── Export / Share ────────────────────────────────────────────────
     function createBackup() {
-        if (transactions.length === 0) { alert('কোনো ডেটা নেই'); return; }
-        const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify({ transactions, categories }, null, 2));
-        const dl = document.createElement('a');
-        dl.setAttribute('href', dataStr);
-        dl.setAttribute('download', 'smart_hisab_' + currentUser.displayName + '_backup_' + new Date().toISOString().split('T')[0] + '.json');
+        if(transactions.length===0){alert('কোনো ডেটা নেই');return;}
+        const dataStr='data:text/json;charset=utf-8,'+encodeURIComponent(JSON.stringify({transactions,categories},null,2));
+        const dl=document.createElement('a'); dl.setAttribute('href',dataStr);
+        dl.setAttribute('download','smart_hisab_'+currentUser.displayName+'_backup_'+new Date().toISOString().split('T')[0]+'.json');
         dl.click();
     }
 
     async function restoreBackup(event) {
-        const file = event.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = async (e) => {
+        const file=event.target.files[0]; if(!file) return;
+        const reader=new FileReader();
+        reader.onload=async(e)=>{
             try {
-                const data = JSON.parse(e.target.result);
-                const txList = Array.isArray(data) ? data : (data.transactions || []);
+                const data=JSON.parse(e.target.result);
+                const txList=Array.isArray(data)?data:(data.transactions||[]);
                 showLoading('রিস্টোর হচ্ছে...');
-                await sb.from('transactions').delete().eq('username', currentUser.username);
-                const rows = txList.map(t => ({ ...t, id: t.id || Date.now().toString(), username: currentUser.username }));
-                if (rows.length > 0) await sb.from('transactions').insert(rows);
-                transactions = rows;
-                render();
-                hideLoading();
+                const rows=txList.map(t=>({...t,id:t.id||Date.now().toString(),username:currentUser.username}));
+                transactions=rows;
+                localStorage.setItem(lsKey('tx'),JSON.stringify(transactions));
+                if(isOnline){
+                    await sb.from('transactions').delete().eq('username',currentUser.username);
+                    if(rows.length>0) await sb.from('transactions').insert(rows);
+                } else {
+                    rows.forEach(t=>addToQueue({type:'insert_tx',data:t}));
+                }
+                render(); hideLoading();
                 alert('ব্যাকআপ থেকে রিস্টোর সফল হয়েছে!');
-            } catch(err) {
-                hideLoading();
-                alert('ফাইল আপলোড করতে সমস্যা হয়েছে: ' + err.message);
-            }
+            } catch(err){ hideLoading(); alert('ফাইল আপলোড করতে সমস্যা হয়েছে: '+err.message); }
         };
         reader.readAsText(file);
     }
 
     function exportToExcel() {
-        if (transactions.length === 0) { alert('কোনো ডেটা নেই'); return; }
-        const exportData = transactions.map(item => ({
-            'তারিখ': item.date, 'বিবরণ': item.title, 'ক্যাটাগরি': item.category||'সাধারণ',
-            'আয়': item.type==='income'?item.amount:'', 'ব্যয়': item.type==='expense'?item.amount:'', 'নোট': item.note||''
-        }));
-        const ws = XLSX.utils.json_to_sheet(exportData);
-        ws['!cols'] = [{ wch:12 },{ wch:20 },{ wch:15 },{ wch:12 },{ wch:12 },{ wch:25 }];
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, 'আয় ব্যয়');
-        XLSX.writeFile(wb, 'smart_hisab_' + currentUser.displayName + '_' + new Date().toISOString().split('T')[0] + '.xlsx');
+        if(transactions.length===0){alert('কোনো ডেটা নেই');return;}
+        const exportData=transactions.map(item=>({'তারিখ':item.date,'বিবরণ':item.title,'ক্যাটাগরি':item.category||'সাধারণ','আয়':item.type==='income'?item.amount:'','ব্যয়':item.type==='expense'?item.amount:'','নোট':item.note||''}));
+        const ws=XLSX.utils.json_to_sheet(exportData);
+        ws['!cols']=[{wch:12},{wch:20},{wch:15},{wch:12},{wch:12},{wch:25}];
+        const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'আয় ব্যয়');
+        XLSX.writeFile(wb,'smart_hisab_'+currentUser.displayName+'_'+new Date().toISOString().split('T')[0]+'.xlsx');
     }
 
     function exportPDF() {
-        const selM = parseInt(document.getElementById('filter-month').value);
-        const selY = parseInt(document.getElementById('filter-year').value);
-        const months = ['জানুয়ারি','ফেব্রুয়ারি','মার্চ','এপ্রিল','মে','জুন','জুলাই','আগস্ট','সেপ্টেম্বর','অক্টোবর','নভেম্বর','ডিসেম্বর'];
-        const mTx = transactions.filter(t => {
-            const d = new Date(t.date+'T00:00:00');
-            return d.getMonth()===selM && d.getFullYear()===selY;
-        });
-        const totalIncome = mTx.filter(i=>i.type==='income').reduce((s,i)=>s+i.amount,0);
-        const totalExpense = mTx.filter(i=>i.type==='expense').reduce((s,i)=>s+i.amount,0);
-        const rows = [...mTx].sort((a,b)=>a.date.localeCompare(b.date)).map(t =>
-            `<tr><td>${t.date}</td><td>${t.title}</td><td>${t.category||'সাধারণ'}</td>
-             <td style="color:green">${t.type==='income'?'৳'+t.amount:''}</td>
-             <td style="color:red">${t.type==='expense'?'৳'+t.amount:''}</td>
-             <td style="font-size:11px;color:#888">${t.note||''}</td></tr>`
-        ).join('');
-        const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>স্মার্ট হিসাব</title>
-        <style>body{font-family:Arial,sans-serif;padding:20px}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{border:1px solid #ddd;padding:8px;font-size:13px}th{background:#008080;color:white}.summary{display:flex;gap:16px;margin:16px 0}.scard{padding:12px 20px;border-radius:10px;color:white;text-align:center}.scard h3{margin:0;font-size:20px}</style>
-        </head><body>
-        <h1>📊 স্মার্ট হিসাব — মাসিক রিপোর্ট</h1>
-        <p>ব্যবহারকারী: <b>${currentUser.displayName}</b> | মাস: <b>${months[selM]} ${selY}</b></p>
-        <div class="summary">
-            <div class="scard" style="background:#0e8a16"><h3>৳${totalIncome.toLocaleString()}</h3><p>মোট আয়</p></div>
-            <div class="scard" style="background:#c90a4d"><h3>৳${totalExpense.toLocaleString()}</h3><p>মোট ব্যয়</p></div>
-            <div class="scard" style="background:#008080"><h3>৳${(totalIncome-totalExpense).toLocaleString()}</h3><p>ব্যালেন্স</p></div>
-        </div>
-        <table><thead><tr><th>তারিখ</th><th>বিবরণ</th><th>ক্যাটাগরি</th><th>আয়</th><th>ব্যয়</th><th>নোট</th></tr></thead>
-        <tbody>${rows}</tbody></table>
-        <p style="margin-top:20px;font-size:11px;color:#aaa">তৈরি: ${new Date().toLocaleString()}</p>
-        <\/body><\/html>`;
-        const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = `হিসাব_${currentUser.displayName}_${months[selM]}_${selY}.html`;
-        a.click();
+        const selM=parseInt(document.getElementById('filter-month').value);
+        const selY=parseInt(document.getElementById('filter-year').value);
+        const months=['জানুয়ারি','ফেব্রুয়ারি','মার্চ','এপ্রিল','মে','জুন','জুলাই','আগস্ট','সেপ্টেম্বর','অক্টোবর','নভেম্বর','ডিসেম্বর'];
+        const mTx=transactions.filter(t=>{const d=new Date(t.date+'T00:00:00');return d.getMonth()===selM&&d.getFullYear()===selY;});
+        const totalIncome=mTx.filter(i=>i.type==='income').reduce((s,i)=>s+i.amount,0);
+        const totalExpense=mTx.filter(i=>i.type==='expense').reduce((s,i)=>s+i.amount,0);
+        const rows=[...mTx].sort((a,b)=>a.date.localeCompare(b.date)).map(t=>`<tr><td>${t.date}</td><td>${t.title}</td><td>${t.category||'সাধারণ'}</td><td style="color:green">${t.type==='income'?'৳'+t.amount:''}</td><td style="color:red">${t.type==='expense'?'৳'+t.amount:''}</td><td style="font-size:11px;color:#888">${t.note||''}</td></tr>`).join('');
+        const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>স্মার্ট হিসাব</title><style>body{font-family:Arial,sans-serif;padding:20px}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{border:1px solid #ddd;padding:8px;font-size:13px}th{background:#008080;color:white}.summary{display:flex;gap:16px;margin:16px 0}.scard{padding:12px 20px;border-radius:10px;color:white;text-align:center}.scard h3{margin:0;font-size:20px}<\/style><\/head><body><h1>📊 স্মার্ট হিসাব — মাসিক রিপোর্ট<\/h1><p>ব্যবহারকারী: <b>${currentUser.displayName}<\/b> | মাস: <b>${months[selM]} ${selY}<\/b><\/p><div class="summary"><div class="scard" style="background:#0e8a16"><h3>৳${totalIncome.toLocaleString()}<\/h3><p>মোট আয়<\/p><\/div><div class="scard" style="background:#c90a4d"><h3>৳${totalExpense.toLocaleString()}<\/h3><p>মোট ব্যয়<\/p><\/div><div class="scard" style="background:#008080"><h3>৳${(totalIncome-totalExpense).toLocaleString()}<\/h3><p>ব্যালেন্স<\/p><\/div><\/div><table><thead><tr><th>তারিখ<\/th><th>বিবরণ<\/th><th>ক্যাটাগরি<\/th><th>আয়<\/th><th>ব্যয়<\/th><th>নোট<\/th><\/tr><\/thead><tbody>${rows}<\/tbody><\/table><p style="margin-top:20px;font-size:11px;color:#aaa">তৈরি: ${new Date().toLocaleString()}<\/p><\/body><\/html>`;
+        const blob=new Blob([html],{type:'text/html;charset=utf-8'});
+        const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+        a.download=`হিসাব_${currentUser.displayName}_${months[selM]}_${selY}.html`; a.click();
         showToast('📄 রিপোর্ট ডাউনলোড হচ্ছে...');
     }
 
     function shareSummary() {
-        const now = new Date();
-        const todayStr = now.toISOString().split('T')[0];
-        const mTx = transactions.filter(t => t.date === todayStr);
-        const totalIncome = mTx.filter(i=>i.type==='income').reduce((s,i)=>s+i.amount,0);
-        const totalExpense = mTx.filter(i=>i.type==='expense').reduce((s,i)=>s+i.amount,0);
-        const text = `📊 স্মার্ট হিসাব — আজকের\n━━━━━━━━━━━━━━\n💚 মোট আয়:   ৳${totalIncome.toLocaleString('bn-BD')}\n❤️ মোট ব্যয়: ৳${totalExpense.toLocaleString('bn-BD')}\n💰 ব্যালেন্স: ৳${(totalIncome-totalExpense).toLocaleString('bn-BD')}\n━━━━━━━━━━━━━━\n📌 মোট এন্ট্রি: ${mTx.length}টি`;
-        if (navigator.share) { navigator.share({ title: 'স্মার্ট হিসাব', text }); }
-        else if (navigator.clipboard) { navigator.clipboard.writeText(text); showToast('📋 ক্লিপবোর্ডে কপি হয়েছে!'); }
-        else { showToast('শেয়ার সাপোর্ট নেই'); }
+        const todayStr=new Date().toISOString().split('T')[0];
+        const mTx=transactions.filter(t=>t.date===todayStr);
+        const totalIncome=mTx.filter(i=>i.type==='income').reduce((s,i)=>s+i.amount,0);
+        const totalExpense=mTx.filter(i=>i.type==='expense').reduce((s,i)=>s+i.amount,0);
+        const text=`📊 স্মার্ট হিসাব — আজকের\n━━━━━━━━━━━━━━\n💚 মোট আয়:   ৳${totalIncome.toLocaleString('bn-BD')}\n❤️ মোট ব্যয়: ৳${totalExpense.toLocaleString('bn-BD')}\n💰 ব্যালেন্স: ৳${(totalIncome-totalExpense).toLocaleString('bn-BD')}\n━━━━━━━━━━━━━━\n📌 মোট এন্ট্রি: ${mTx.length}টি`;
+        if(navigator.share){navigator.share({title:'স্মার্ট হিসাব',text});}
+        else if(navigator.clipboard){navigator.clipboard.writeText(text);showToast('📋 ক্লিপবোর্ডে কপি হয়েছে!');}
+        else{showToast('শেয়ার সাপোর্ট নেই');}
     }
 
-    // ── Dark Mode ─────────────────────────────────────────────────────
     function toggleDarkMode() {
-        darkMode = !darkMode;
-        document.body.classList.toggle('dark', darkMode);
-        const lbl = document.getElementById('darkModeLabel');
-        if (lbl) lbl.textContent = darkMode ? '☀️ লাইট মোড' : '🌙 ডার্ক মোড';
+        darkMode=!darkMode;
+        document.body.classList.toggle('dark',darkMode);
+        const lbl=document.getElementById('darkModeLabel');
+        if(lbl) lbl.textContent=darkMode?'☀️ লাইট মোড':'🌙 ডার্ক মোড';
     }
 
-    // ── Toast ─────────────────────────────────────────────────────────
     function showToast(msg) {
-        const t = document.getElementById('shareToast');
-        if (!t) return;
-        t.textContent = msg;
-        t.classList.add('show');
-        setTimeout(() => t.classList.remove('show'), 2500);
+        const t=document.getElementById('shareToast'); if(!t) return;
+        t.textContent=msg; t.classList.add('show');
+        setTimeout(()=>t.classList.remove('show'),2500);
     }
 
 </script>
