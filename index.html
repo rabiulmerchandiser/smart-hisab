@@ -1,0 +1,2805 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>স্মার্ট হিসাব</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root {
+            --primary-pink: #e91e63;
+            --header-cyan: #80ced6;
+            --income-green: #0e8a16;
+            --expense-red: #c90a4d;
+            --balance-teal: #3949ab;
+            --bg-light: #f3f4f6;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background-color: var(--bg-light);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        .app-container {
+            width: 100vw;
+            max-width: 450px;
+            background-color: var(--bg-light);
+            min-height: 100vh;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 0 20px rgba(0,0,0,0.3);
+            position: relative;
+            overflow-x: hidden;
+            overflow-y: hidden;
+        }
+
+        /* স্ক্রলযোগ্য কন্টেন্ট এলাকা */
+        .page-content {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        /* PIN Screen */
+        /* Auth Screen */
+        #auth-screen {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
+            z-index: 3000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            padding: 20px;
+        }
+
+        .auth-logo {
+            font-size: 48px;
+            margin-bottom: 8px;
+        }
+
+        .auth-title {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 6px;
+        }
+
+        .auth-subtitle {
+            font-size: 13px;
+            opacity: 0.8;
+            margin-bottom: 30px;
+        }
+
+        .auth-box {
+            background: white;
+            border-radius: 20px;
+            padding: 25px 20px;
+            width: 100%;
+            max-width: 340px;
+            color: #333;
+        }
+
+        .auth-tabs {
+            display: flex;
+            margin-bottom: 20px;
+            background: #f1f3f5;
+            border-radius: 10px;
+            padding: 4px;
+        }
+
+        .auth-tab {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            background: transparent;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 14px;
+            cursor: pointer;
+            transition: 0.2s;
+            color: #666;
+        }
+
+        .auth-tab.active {
+            background: var(--balance-teal);
+            color: white;
+        }
+
+        .auth-form { display: none; }
+        .auth-form.active { display: block; }
+
+        .auth-input-group {
+            margin-bottom: 14px;
+        }
+
+        .auth-input-group label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 5px;
+        }
+
+        .auth-input-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 15px;
+            font-family: inherit;
+            outline: none;
+            transition: 0.2s;
+            box-sizing: border-box;
+        }
+
+        .auth-input-group input:focus {
+            border-color: var(--balance-teal);
+        }
+
+        .auth-btn {
+            width: 100%;
+            padding: 14px;
+            background: var(--balance-teal);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+            margin-top: 5px;
+        }
+
+        .auth-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,128,128,0.4); }
+
+        .auth-error {
+            color: #e53935;
+            font-size: 12px;
+            text-align: center;
+            margin-top: 8px;
+            min-height: 18px;
+            font-weight: 600;
+        }
+
+        .auth-success {
+            color: #2e7d32;
+            font-size: 12px;
+            text-align: center;
+            margin-top: 8px;
+            min-height: 18px;
+            font-weight: 600;
+        }
+
+        .forgot-link {
+            display: block;
+            text-align: center;
+            margin-top: 10px;
+            font-size: 12px;
+            color: var(--balance-teal);
+            cursor: pointer;
+            text-decoration: underline;
+            font-weight: 600;
+        }
+
+        .forgot-link:hover { opacity: 0.75; }
+
+        .security-question-display {
+            background: #f0f7ff;
+            border: 2px solid #90caf9;
+            border-radius: 10px;
+            padding: 12px 14px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #1565c0;
+            margin-bottom: 12px;
+            text-align: center;
+        }
+
+        /* User indicator in header */
+        .user-indicator {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 12px;
+            background: rgba(0,0,0,0.15);
+            padding: 4px 10px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: 600;
+            white-space: nowrap;
+            max-width: 100px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .user-indicator:hover { background: rgba(0,0,0,0.25); }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #1a237e 0%, #283593 50%, #3949ab 100%);
+            color: white;
+            padding: 15px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 20px;
+            position: relative;
+            box-shadow: 0 2px 8px rgba(26,35,126,0.4);
+        }
+
+        .menu-icon {
+            position: absolute;
+            right: 15px;
+            top: 12px;
+            font-size: 28px;
+            cursor: pointer;
+            color: #fff;
+            transition: 0.2s;
+        }
+
+        .menu-icon:hover {
+            transform: scale(1.1);
+        }
+
+        /* Side Menu */
+        .side-menu {
+            position: fixed;
+            top: 0;
+            right: -280px;
+            width: 250px;
+            height: 100%;
+            background: white;
+            z-index: 2000;
+            transition: 0.4s;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            box-shadow: -5px 0 15px rgba(0,0,0,0.2);
+            overflow-y: auto;
+        }
+
+        .side-menu.active { right: 0; }
+
+        .menu-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1500;
+            display: none;
+        }
+
+        .menu-overlay.active {
+            display: block;
+        }
+
+        .menu-item {
+            background: #f1f3f5;
+            padding: 14px;
+            border-radius: 12px;
+            font-size: 14px;
+            text-align: center;
+            cursor: pointer;
+            border: 1px solid #dee2e6;
+            font-weight: 600;
+            color: #333;
+            display: block;
+            text-decoration: none;
+            transition: 0.2s;
+        }
+
+        .menu-item:hover {
+            background: #e9ecef;
+            transform: translateX(-5px);
+        }
+
+        /* Entry Panel (NEW) */
+        .entry-panel {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 2500;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .entry-panel.active { display: flex; }
+        .entry-panel-content {
+            background: white;
+            width: 90%;
+            max-width: 400px;
+            max-height: 90vh;
+            border-radius: 20px;
+            padding: 20px;
+            overflow-y: auto;
+            position: relative;
+        }
+        .close-panel {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 28px;
+            cursor: pointer;
+            color: #666;
+            transition: 0.2s;
+        }
+
+        .close-panel:hover {
+            color: #000;
+            transform: scale(1.2);
+        }
+
+        .entry-tabs {
+            display: flex;
+            margin: 20px 0 20px;
+            gap: 5px;
+        }
+        .entry-tab {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            background: #eee;
+            cursor: pointer;
+            font-weight: bold;
+            border-radius: 8px;
+            transition: 0.2s;
+            font-size: 16px;
+        }
+        .entry-tab.active {
+            background: var(--primary-pink);
+            color: white;
+        }
+
+        .entry-form {
+            display: none;
+        }
+        .entry-form.active {
+            display: block;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #333;
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            font-family: inherit;
+        }
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: var(--primary-pink);
+        }
+
+        .submit-btn {
+            width: 100%;
+            padding: 14px;
+            background: var(--primary-pink);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+            margin-top: 10px;
+        }
+        .submit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(233, 30, 99, 0.4);
+        }
+
+        /* Category Management Panel */
+        .category-panel {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 2500;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .category-panel.active { display: flex; }
+        .category-panel-content {
+            background: white;
+            width: 90%;
+            max-width: 400px;
+            max-height: 90vh;
+            border-radius: 20px;
+            padding: 20px;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .cat-tabs {
+            display: flex;
+            margin: 20px 0 10px;
+            gap: 5px;
+        }
+        .cat-tab {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            background: #eee;
+            cursor: pointer;
+            font-weight: bold;
+            border-radius: 8px;
+            transition: 0.2s;
+        }
+        .cat-tab.active {
+            background: var(--primary-pink);
+            color: white;
+        }
+        .cat-list {
+            margin: 15px 0;
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #eee;
+            border-radius: 8px;
+            padding: 5px;
+        }
+        .cat-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .cat-item:last-child {
+            border-bottom: none;
+        }
+
+        .cat-item-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
+        }
+        .cat-color-dot {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .cat-actions button {
+            padding: 5px 10px;
+            margin-left: 5px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: 0.2s;
+        }
+        .cat-edit-btn {
+            background: #4CAF50;
+            color: white;
+        }
+        .cat-delete-btn {
+            background: #f44336;
+            color: white;
+        }
+        .cat-actions button:hover {
+            transform: scale(1.05);
+        }
+
+        .cat-add-section {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 2px solid #eee;
+        }
+        .cat-add-inputs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .cat-add-inputs input {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        .cat-add-inputs input[type="color"] {
+            width: 50px;
+            padding: 5px;
+            cursor: pointer;
+        }
+        .cat-add-btn {
+            width: 100%;
+            padding: 10px;
+            background: var(--primary-pink);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .cat-add-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(233,30,99,0.3);
+        }
+
+        /* FIXED TOP SECTION */
+        .fixed-top-section {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            background-color: var(--bg-light);
+        }
+
+        /* Summary Cards */
+        .summary {
+            padding: 10px 12px 6px;
+        }
+
+        .balance-card {
+            background: linear-gradient(135deg, #1565c0 0%, #0d47a1 50%, #1a237e 100%);
+            color: white;
+            padding: 12px 16px;
+            border-radius: 16px;
+            text-align: center;
+            box-shadow: 0 3px 12px rgba(21,101,192,0.4);
+            margin-bottom: 8px;
+        }
+
+        .balance-card-title {
+            font-size: 12px;
+            font-weight: 600;
+            opacity: 0.85;
+            margin-bottom: 4px;
+            letter-spacing: 0.3px;
+        }
+
+        .balance-card-amount {
+            font-size: 28px;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+        }
+
+        .income-expense-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .card {
+            background-color: white;
+            padding: 8px 10px;
+            border-radius: 14px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .card:nth-child(1) { 
+            background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+            border-bottom: 3px solid var(--income-green);
+        }
+
+        .card:nth-child(2) { 
+            background: linear-gradient(135deg, #fce4ec 0%, #f8bbd0 100%);
+            border-bottom: 3px solid var(--expense-red);
+        }
+
+        .card:nth-child(3) {
+            background: linear-gradient(135deg, #e8eaf6 0%, #c5cae9 100%);
+            border-bottom: 3px solid #3949ab;
+        }
+
+        .card-title {
+            font-size: 11px;
+            font-weight: bold;
+            margin-bottom: 3px;
+            opacity: 0.8;
+        }
+
+        .card-amount {
+            font-size: 15px;
+            font-weight: bold;
+        }
+
+        .income {
+            background: linear-gradient(135deg, #1b5e20, #43a047);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .expense {
+            background: linear-gradient(135deg, #880e4f, #e91e63);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .balance {
+            background: linear-gradient(135deg, #1a237e, #3949ab, #7986cb);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* View Selection Container */
+        .view-selection {
+            background: white;
+            margin: 0 12px 8px;
+            padding: 8px 10px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .view-buttons {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+
+        .view-btn {
+            padding: 8px 4px;
+            background-color: #eee;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 12px;
+            transition: 0.2s;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .view-btn.active {
+            background-color: var(--primary-pink);
+            color: white;
+        }
+
+        .view-btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .filter-controls {
+            padding: 10px 0;
+        }
+
+        .filter-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .filter-controls select,
+        .filter-controls input[type="date"] {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            font-size: 14px;
+        }
+
+        /* Chart Section */
+        .chart-section {
+            background: white;
+            margin: 10px 15px;
+            padding: 15px;
+            border-radius: 20px;
+            border-bottom: 4px solid var(--header-cyan);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .chart-header {
+            text-align: center;
+            font-weight: bold;
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .chart-content {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .chart-container {
+            position: relative;
+            width: 160px;
+            height: 160px;
+            flex-shrink: 0;
+        }
+
+        .category-list {
+            flex: 1;
+            max-height: 160px;
+            overflow-y: auto;
+        }
+
+        .category-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .category-item:last-child {
+            border-bottom: none;
+        }
+
+        .category-name {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+        }
+
+        .color-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .category-amount {
+            font-weight: bold;
+            color: #333;
+            font-size: 13px;
+        }
+
+        /* Transaction List */
+        .list-section {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 15px 20px;
+        }
+
+        .item {
+            background: white;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border-left: 5px solid;
+            flex-wrap: wrap;
+        }
+
+        .cat-badge {
+            display: inline-block;
+            background: #f0f0f0;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            margin-left: 8px;
+            color: #666;
+        }
+
+        /* 3-dot dropdown menu */
+        .item-actions {
+            position: relative;
+            display: inline-block;
+            margin-left: 8px;
+        }
+
+        .three-dot-btn {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: #aaa;
+            padding: 0 4px;
+            border-radius: 6px;
+            line-height: 1;
+            transition: 0.15s;
+            vertical-align: middle;
+        }
+
+        .three-dot-btn:hover {
+            background: #f0f0f0;
+            color: #555;
+        }
+
+        .dropdown-menu {
+            position: absolute;
+            right: 0;
+            top: 110%;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 6px 24px rgba(0,0,0,0.15);
+            min-width: 130px;
+            z-index: 500;
+            overflow: hidden;
+            display: none;
+            animation: dropIn 0.15s ease;
+        }
+
+        @keyframes dropIn {
+            from { opacity: 0; transform: translateY(-6px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .dropdown-menu.open { display: block; }
+
+        .dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 11px 16px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            background: none;
+            width: 100%;
+            text-align: left;
+            transition: 0.15s;
+        }
+
+        .dropdown-item:hover { background: #f5f5f5; }
+
+        .dropdown-item.edit { color: #1976D2; }
+        .dropdown-item.delete { color: #e53935; }
+
+        .dropdown-divider {
+            height: 1px;
+            background: #f0f0f0;
+            margin: 0;
+        }
+
+        /* Edit Modal */
+        .edit-modal {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.55);
+            z-index: 2800;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .edit-modal.active { display: flex; }
+
+        .edit-modal-content {
+            background: white;
+            width: 90%;
+            max-width: 400px;
+            max-height: 90vh;
+            border-radius: 20px;
+            padding: 24px 20px 20px;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .edit-modal-title {
+            text-align: center;
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .edit-type-badge {
+            display: inline-block;
+            padding: 3px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: bold;
+            margin-left: 8px;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #999;
+            padding: 40px 20px;
+            font-size: 16px;
+        }
+
+        .date-filter-error {
+            text-align: center;
+            color: var(--expense-red);
+            padding: 20px;
+            font-weight: bold;
+        }
+
+        /* ── Dark Mode ───────────────────────────────── */
+        body.dark { background-color: #121212; }
+        body.dark .app-container { background-color: #1e1e1e; }
+        body.dark .header { background: linear-gradient(135deg, #0d1257 0%, #1a237e 100%); color: #e0e0e0; }
+        body.dark .balance-card { background: linear-gradient(135deg, #0d1257, #1a237e); }
+        body.dark .card { background-color: #2c2c2c; color: #e0e0e0; }
+        body.dark .item { background-color: #2c2c2c; color: #e0e0e0; }
+        body.dark .view-selection { background-color: #2c2c2c; }
+        body.dark .view-btn { background-color: #3a3a3a; color: #ccc; }
+        body.dark .chart-section { background-color: #2c2c2c; color: #e0e0e0; }
+        body.dark .chart-header { color: #e0e0e0; }
+        body.dark .side-menu { background-color: #2c2c2c; }
+        body.dark .menu-item { background-color: #3a3a3a; color: #e0e0e0; border-color: #444; }
+        body.dark .fixed-top-section { background-color: #1e1e1e; }
+        body.dark .filter-controls select,
+        body.dark .filter-controls input[type="date"] { background: #3a3a3a; color: #e0e0e0; border-color: #555; }
+        body.dark .cat-badge { background: #3a3a3a; color: #bbb; }
+        body.dark small { color: #aaa !important; }
+        body.dark .three-dot-btn { color: #888; }
+        body.dark .dropdown-menu { background: #2c2c2c; box-shadow: 0 6px 24px rgba(0,0,0,0.5); }
+        body.dark .dropdown-item:hover { background: #3a3a3a; }
+        body.dark .empty-state { color: #666; }
+        body.dark .category-amount { color: #ccc; }
+
+        /* ── Search Bar ──────────────────────────────── */
+        .search-bar {
+            display: flex;
+            align-items: center;
+            background: white;
+            margin: 0 12px 8px;
+            padding: 8px 12px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            gap: 8px;
+        }
+        body.dark .search-bar { background: #2c2c2c; }
+        .search-bar input {
+            flex: 1;
+            border: none;
+            outline: none;
+            font-size: 14px;
+            background: transparent;
+            color: inherit;
+        }
+        .search-bar span { color: #aaa; font-size: 16px; }
+
+        /* ── Budget Section ──────────────────────────── */
+        .budget-section {
+            background: white;
+            margin: 0 12px 8px;
+            padding: 12px;
+            border-radius: 14px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            display: none;
+        }
+        body.dark .budget-section { background: #2c2c2c; }
+        .budget-section.visible { display: block; }
+        .budget-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .budget-item {
+            margin-bottom: 10px;
+        }
+        .budget-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            margin-bottom: 4px;
+            color: #555;
+        }
+        body.dark .budget-label { color: #aaa; }
+        .budget-bar-bg {
+            height: 8px;
+            background: #eee;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        body.dark .budget-bar-bg { background: #3a3a3a; }
+        .budget-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.4s ease;
+        }
+        .budget-warn { color: #ff5722 !important; font-weight: bold; }
+
+        /* ── Bar Chart Modal ─────────────────────────── */
+        .chart-modal {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.55);
+            z-index: 2800;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .chart-modal.active { display: flex; }
+        .chart-modal-content {
+            background: white;
+            width: 95%;
+            max-width: 440px;
+            max-height: 90vh;
+            border-radius: 20px;
+            padding: 20px;
+            overflow-y: auto;
+            position: relative;
+        }
+        body.dark .chart-modal-content { background: #2c2c2c; color: #e0e0e0; }
+        .chart-modal-title {
+            text-align: center;
+            font-size: 17px;
+            font-weight: bold;
+            margin-bottom: 16px;
+        }
+
+        /* ── Budget Modal ────────────────────────────── */
+        .budget-modal {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.55);
+            z-index: 2800;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .budget-modal.active { display: flex; }
+        .budget-modal-content {
+            background: white;
+            width: 92%;
+            max-width: 400px;
+            max-height: 90vh;
+            border-radius: 20px;
+            padding: 22px 18px;
+            overflow-y: auto;
+            position: relative;
+        }
+        body.dark .budget-modal-content { background: #2c2c2c; color: #e0e0e0; }
+
+        /* ── Note field ──────────────────────────────── */
+        .form-group textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: none;
+            height: 64px;
+        }
+        body.dark .form-group textarea { background: #3a3a3a; color: #e0e0e0; border-color: #555; }
+        .form-group textarea:focus { outline: none; border-color: var(--primary-pink); }
+        body.dark .form-group input, body.dark .form-group select { background: #3a3a3a; color: #e0e0e0; border-color: #555; }
+
+
+        /* ── Note in transaction item ────────────────── */
+        .item-note {
+            font-size: 11px;
+            color: #888;
+            margin-top: 2px;
+            font-style: italic;
+        }
+        body.dark .item-note { color: #777; }
+
+        /* ── Share button ────────────────────────────── */
+        .share-toast {
+            position: fixed;
+            bottom: 90px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #333;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 13px;
+            z-index: 9999;
+            opacity: 0;
+            transition: opacity 0.3s;
+            white-space: nowrap;
+        }
+        .share-toast.show { opacity: 1; }
+
+        /* ── Settings Page ───────────────────────── */
+        .settings-list {
+            background: white;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        body.dark .settings-list { background: #2c2c2c; }
+        .settings-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 16px;
+            border-bottom: 1px solid #f0f0f0;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: 0.15s;
+        }
+        body.dark .settings-item { border-bottom-color: #3a3a3a; color: #e0e0e0; }
+        .settings-item:last-child { border-bottom: none; }
+        .settings-item:hover { background: #f8f8f8; }
+        body.dark .settings-item:hover { background: #3a3a3a; }
+        .settings-item span:first-child { font-size: 18px; width: 28px; }
+        .settings-item span:nth-child(2) { flex: 1; }
+        .settings-item span:last-child { color: #bbb; font-size: 18px; }
+
+        .app-container { padding-bottom: 0; }
+
+        /* ── Bottom Navigation ─────────────────────── */
+        .bottom-nav {
+            width: 100%;
+            height: 68px;
+            background: linear-gradient(180deg, #1e2e8e 0%, #1a237e 100%);
+            display: flex;
+            align-items: center;
+            justify-content: space-around;
+            flex-shrink: 0;
+            box-shadow: 0 -1px 0 rgba(255,255,255,0.08), 0 -6px 24px rgba(0,0,0,0.35);
+            position: sticky;
+            bottom: 0;
+            z-index: 100;
+            padding: 0 6px;
+            padding-bottom: env(safe-area-inset-bottom, 0px);
+            overflow: visible;
+            border-radius: 20px 20px 0 0;
+        }
+        body.dark .bottom-nav { background: linear-gradient(180deg, #0d1460 0%, #0d1257 100%); }
+
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            cursor: pointer;
+            flex: 1;
+            height: 100%;
+            padding: 8px 4px 6px;
+            border: none;
+            background: none;
+            color: rgba(255,255,255,0.4);
+            transition: color 0.2s, transform 0.15s;
+            position: relative;
+        }
+        .nav-item:active { transform: scale(0.92); }
+
+        /* Active pill indicator under icon */
+        .nav-item.active {
+            color: #ffffff;
+        }
+        .nav-item.active .nav-icon-wrap {
+            background: rgba(255,255,255,0.18);
+            border: 1.5px solid rgba(255,255,255,0.35);
+            box-shadow: 0 0 10px rgba(144,202,249,0.3);
+        }
+        .nav-item .nav-icon-wrap {
+            width: 40px;
+            height: 28px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1.5px solid transparent;
+            transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+        }
+        .nav-item:hover:not(.active) .nav-icon-wrap {
+            background: rgba(255,255,255,0.08);
+            border-color: rgba(255,255,255,0.15);
+        }
+        .nav-item svg { width: 20px; height: 20px; fill: currentColor; }
+        .nav-item span { font-size: 10px; font-weight: 600; letter-spacing: 0.2px; }
+
+        .nav-add-btn {
+            width: 58px;
+            height: 58px;
+            background: linear-gradient(135deg, #880e4f, #e91e63);
+            border: 3px solid rgba(255,255,255,0.45);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 -4px 16px rgba(136,14,79,0.45), 0 4px 16px rgba(233,30,99,0.4), 0 1px 0 rgba(255,255,255,0.25) inset;
+            flex-shrink: 0;
+            transition: transform 0.2s, box-shadow 0.2s;
+            position: absolute;
+            top: -29px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 101;
+        }
+        .nav-add-btn:active { transform: translateX(-50%) scale(0.91); box-shadow: 0 2px 8px rgba(233,30,99,0.4); }
+        .nav-add-btn svg { width: 28px; height: 28px; fill: white; }
+
+        /* Responsive */
+        @media (max-width: 400px) {
+            .view-buttons {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .view-btn { font-size: 11px; padding: 7px 2px; }
+            .nav-item { padding: 8px 8px; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Auth Screen -->
+<div id="auth-screen">
+    <div class="auth-logo">💰</div>
+    <div class="auth-title">স্মার্ট হিসাব</div>
+    <div class="auth-subtitle">আপনার আয় ও ব্যয় সহজে পরিচালনা করুন</div>
+
+    <div class="auth-box">
+        <div class="auth-tabs">
+            <button class="auth-tab active" onclick="switchAuthTab('login')">লগইন</button>
+            <button class="auth-tab" onclick="switchAuthTab('register')">নিবন্ধন</button>
+        </div>
+
+        <!-- Login Form -->
+        <div class="auth-form active" id="login-form">
+            <div class="auth-input-group">
+                <label>ইউজারনেম</label>
+                <input type="text" id="login-username" placeholder="আপনার ইউজারনেম" onkeydown="if(event.key==='Enter') document.getElementById('login-pin').focus()">
+            </div>
+            <div class="auth-input-group">
+                <label>PIN (৪ সংখ্যা)</label>
+                <input type="password" id="login-pin" maxlength="4" placeholder="••••" onkeydown="if(event.key==='Enter') doLogin()">
+            </div>
+            <button class="auth-btn" onclick="doLogin()">লগইন করুন</button>
+            <div class="auth-error" id="login-error"></div>
+            <span class="forgot-link" onclick="showForgotForm()">🔑 PIN ভুলে গেছেন?</span>
+        </div>
+
+        <!-- Register Form -->
+        <div class="auth-form" id="register-form">
+            <div class="auth-input-group">
+                <label>ইউজারনেম</label>
+                <input type="text" id="reg-username" placeholder="নতুন ইউজারনেম" onkeydown="if(event.key==='Enter') document.getElementById('reg-pin').focus()">
+            </div>
+            <div class="auth-input-group">
+                <label>PIN (৪ সংখ্যা)</label>
+                <input type="password" id="reg-pin" maxlength="4" placeholder="••••" onkeydown="if(event.key==='Enter') document.getElementById('reg-pin2').focus()">
+            </div>
+            <div class="auth-input-group">
+                <label>PIN নিশ্চিত করুন</label>
+                <input type="password" id="reg-pin2" maxlength="4" placeholder="••••" onkeydown="if(event.key==='Enter') document.getElementById('reg-sq').focus()">
+            </div>
+            <div class="auth-input-group">
+                <label>নিরাপত্তা প্রশ্ন</label>
+                <select id="reg-sq">
+                    <option value="">— প্রশ্ন বেছে নিন —</option>
+                    <option value="আপনার মায়ের নাম কী?">আপনার মায়ের নাম কী?</option>
+                    <option value="আপনার প্রাথমিক বিদ্যালয়ের নাম কী?">আপনার প্রাথমিক বিদ্যালয়ের নাম কী?</option>
+                    <option value="আপনার প্রিয় খাবার কী?">আপনার প্রিয় খাবার কী?</option>
+                    <option value="আপনার জন্মস্থানের নাম কী?">আপনার জন্মস্থানের নাম কী?</option>
+                    <option value="আপনার প্রথম পোষা প্রাণীর নাম কী?">আপনার প্রথম পোষা প্রাণীর নাম কী?</option>
+                    <option value="আপনার বাবার নাম কী?">আপনার বাবার নাম কী?</option>
+                    <option value="আপনার প্রিয় রঙ কী?">আপনার প্রিয় রঙ কী?</option>
+                </select>
+            </div>
+            <div class="auth-input-group">
+                <label>উত্তর</label>
+                <input type="text" id="reg-sq-answer" placeholder="নিরাপত্তা প্রশ্নের উত্তর" onkeydown="if(event.key==='Enter') doRegister()">
+            </div>
+            <button class="auth-btn" onclick="doRegister()">নিবন্ধন করুন</button>
+            <div class="auth-error" id="reg-error"></div>
+            <div class="auth-success" id="reg-success"></div>
+        </div>
+
+        <!-- Forgot PIN Form -->
+        <div class="auth-form" id="forgot-form">
+            <!-- Step 1: username input -->
+            <div id="forgot-step1">
+                <div style="font-size:13px; color:#555; margin-bottom:14px; text-align:center;">আপনার ইউজারনেম দিন</div>
+                <div class="auth-input-group">
+                    <label>ইউজারনেম</label>
+                    <input type="text" id="forgot-username" placeholder="আপনার ইউজারনেম" onkeydown="if(event.key==='Enter') loadSecurityQuestion()">
+                </div>
+                <button class="auth-btn" onclick="loadSecurityQuestion()">পরবর্তী ধাপ →</button>
+            </div>
+            <!-- Step 2: security question answer -->
+            <div id="forgot-step2" style="display:none;">
+                <div class="security-question-display" id="forgot-sq-text"></div>
+                <div class="auth-input-group">
+                    <label>উত্তর</label>
+                    <input type="text" id="forgot-sq-answer" placeholder="নিরাপত্তা প্রশ্নের উত্তর" onkeydown="if(event.key==='Enter') verifySecurityAnswer()">
+                </div>
+                <button class="auth-btn" onclick="verifySecurityAnswer()">যাচাই করুন ✓</button>
+            </div>
+            <!-- Step 3: new PIN -->
+            <div id="forgot-step3" style="display:none;">
+                <div style="font-size:13px; color:#2e7d32; font-weight:bold; text-align:center; margin-bottom:14px;">✅ যাচাই সফল! নতুন PIN দিন</div>
+                <div class="auth-input-group">
+                    <label>নতুন PIN</label>
+                    <input type="password" id="forgot-new-pin" maxlength="4" placeholder="নতুন ৪ সংখ্যার PIN">
+                </div>
+                <div class="auth-input-group">
+                    <label>PIN নিশ্চিত করুন</label>
+                    <input type="password" id="forgot-new-pin2" maxlength="4" placeholder="আবার লিখুন" onkeydown="if(event.key==='Enter') doResetPin()">
+                </div>
+                <button class="auth-btn" onclick="doResetPin()">নতুন PIN সংরক্ষণ করুন</button>
+            </div>
+            <div class="auth-error" id="forgot-error"></div>
+            <div class="auth-success" id="forgot-success"></div>
+            <span class="forgot-link" onclick="switchAuthTab('login')" style="margin-top:8px;">← লগইনে ফিরুন</span>
+        </div>
+    </div>
+</div>
+
+<div class="app-container" id="app-container" style="display:none">
+    <div class="page-content" id="pageContent">
+    <!-- Header -->
+    <div class="header">
+        <span class="user-indicator" id="user-indicator" onclick="toggleUserMenu(event)" title="মেনু">👤 লোড হচ্ছে...</span>
+        <!-- User Dropdown Menu -->
+        <div id="user-dropdown" style="position:absolute;top:52px;left:10px;background:white;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,0.18);min-width:170px;z-index:3000;display:none;overflow:hidden;">
+            <div style="padding:10px 14px;font-size:12px;font-weight:700;color:#888;border-bottom:1px solid #f0f0f0;" id="user-dropdown-name"></div>
+            <div onclick="setNewPin();closeUserMenu();" style="display:flex;align-items:center;gap:8px;padding:12px 14px;font-size:14px;font-weight:600;cursor:pointer;color:#333;transition:0.15s;" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background=''">
+                <span>🔑</span> PIN পরিবর্তন
+            </div>
+            <div onclick="logoutPrompt();closeUserMenu();" style="display:flex;align-items:center;gap:8px;padding:12px 14px;font-size:14px;font-weight:600;cursor:pointer;color:#e53935;border-top:1px solid #f0f0f0;transition:0.15s;" onmouseover="this.style.background='#fff5f5'" onmouseout="this.style.background=''">
+                <span>🚪</span> লগআউট
+            </div>
+        </div>
+        স্মার্ট হিসাব
+        <span style="width:44px;"></span>
+    </div>
+
+    <!-- FIXED TOP SECTION -->
+    <div class="fixed-top-section">
+        <!-- Summary Cards -->
+        <div class="summary">
+            <!-- মোট ব্যালেন্স - উপরে বড় -->
+            <div class="balance-card">
+                <div class="balance-card-title" id="card-balance-title">মোট ব্যালেন্স</div>
+                <div class="balance-card-amount" id="balance">৳০</div>
+            </div>
+            <!-- আজকের আয় ও ব্যয় - পাশাপাশি -->
+            <div class="income-expense-row">
+                <div class="card">
+                    <div class="card-title" id="card-income-title">আজকের আয়</div>
+                    <div class="card-amount income" id="total-income">৳০</div>
+                </div>
+                <div class="card">
+                    <div class="card-title" id="card-expense-title">আজকের ব্যয়</div>
+                    <div class="card-amount expense" id="total-expense">৳০</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- হোম লেবেল -->
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:8px 14px 6px; background:linear-gradient(90deg,rgba(0,128,128,0.07),transparent);">
+            <div style="font-size:14px; font-weight:700; color:var(--balance-teal); letter-spacing:0.3px;">📋 আজকের লেনদেন</div>
+            <div id="today-date-label" style="font-size:14px; color:var(--balance-teal); font-weight:700;"></div>
+        </div>
+    </div>
+
+    <!-- Budget Overview -->
+    <div class="budget-section" id="budgetSection">
+        <div class="budget-header">
+            <span>📊 বাজেট অগ্রগতি</span>
+            <span style="font-size:12px; color:var(--primary-pink); cursor:pointer;" onclick="openBudgetModal()">সম্পাদনা</span>
+        </div>
+        <div id="budgetBars"></div>
+    </div>
+
+
+    <!-- Transaction List (Home) -->
+    <div class="list-section" id="list"></div>
+
+    <!-- History Page -->
+    <div id="page-history" style="display:none; padding:0; height:100%;">
+        <!-- ফ্রিজড টপ সেকশন (স্টিকি) -->
+        <div style="position:sticky; top:0; z-index:50; background:var(--bg-light); padding:12px 12px 0;">
+        <!-- ফিল্টার বাটন -->
+        <div class="view-selection" style="margin-bottom:-10px; padding:8px 0; background:transparent; box-shadow:none;">
+            <div class="view-buttons" style="grid-template-columns:repeat(3,1fr);">
+                <button class="view-btn active" id="hist-btn-monthly" onclick="setHistView(event,'monthly')">মাসিক</button>
+                <button class="view-btn" id="hist-btn-yearly" onclick="setHistView(event,'yearly')">বার্ষিক</button>
+                <button class="view-btn" id="hist-btn-custom" onclick="setHistView(event,'custom')">তারিখ অনুযায়ী</button>
+            </div>
+            <div class="filter-controls">
+                <div class="filter-row" id="hist-monthly-filter" style="display:flex">
+                    <select id="filter-month"></select>
+                    <select id="filter-year"></select>
+                </div>
+                <div class="filter-row" id="hist-yearly-filter" style="display:none">
+                    <select id="filter-year-only"></select>
+                </div>
+                <div id="hist-custom-filter" style="display:none">
+                    <div class="filter-row">
+                        <input type="date" id="filter-start-date">
+                        <input type="date" id="filter-end-date">
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- সারসংক্ষেপ কার্ড -->
+        <div class="summary" style="margin-bottom:10px; padding:0; display:grid; grid-template-columns:repeat(3,1fr); gap:8px;">
+            <div class="card"><div class="card-title" id="hist-income-title">মাসিক আয়</div><div class="card-amount income" id="hist-total-income">৳০</div></div>
+            <div class="card"><div class="card-title" id="hist-expense-title">মাসিক ব্যয়</div><div class="card-amount expense" id="hist-total-expense">৳০</div></div>
+            <div class="card"><div class="card-title" id="hist-balance-title">ব্যালেন্স</div><div class="card-amount balance" id="hist-balance">৳০</div></div>
+        </div>
+        <!-- সার্চ -->
+        <div class="search-bar" style="margin:0 0 10px;">
+            <span>🔍</span>
+            <input type="text" id="history-search" placeholder="খুঁজুন..." oninput="renderHistory()">
+            <span style="cursor:pointer;color:#aaa;font-size:14px;" onclick="document.getElementById('history-search').value='';renderHistory()">✕</span>
+        </div>
+        </div><!-- /sticky top -->
+        <!-- স্ক্রোলযোগ্য লিস্ট -->
+        <div id="history-list" style="padding:0 12px 12px; overflow-y:auto; flex:1;"></div>
+    </div>
+
+    <!-- Analytics Page -->
+    <div id="page-analytics" style="display:none; padding:12px;">
+        <div style="font-size:15px; font-weight:bold; margin-bottom:12px; color:#333;">📊 বিশ্লেষণ</div>
+        <div class="chart-section" style="margin:0 0 12px;">
+            <div class="chart-header">ক্যাটাগরি অনুযায়ী ব্যয়</div>
+            <div class="chart-content">
+                <div class="chart-container"><canvas id="categoryChart"></canvas></div>
+                <div class="category-list" id="categoryList"></div>
+            </div>
+        </div>
+        <div class="chart-section" style="margin:0;">
+            <div class="chart-header" style="margin-bottom:12px;">📈 মাসভিত্তিক আয় ও ব্যয়</div>
+            <canvas id="barChartInline" style="max-height:220px;"></canvas>
+        </div>
+    </div>
+
+    <!-- Settings Page -->
+    <div id="page-settings" style="display:none; padding:12px;">
+        <div style="font-size:15px; font-weight:bold; margin-bottom:12px; color:#333;">⚙️ সেটিংস</div>
+        <div class="settings-list">
+            <div class="settings-item" onclick="toggleDarkMode()">
+                <span>🌙</span><span id="darkModeLabel">ডার্ক মোড</span><span>›</span>
+            </div>
+            <div class="settings-item" onclick="openBudgetModal()">
+                <span>📊</span><span>বাজেট নির্ধারণ</span><span>›</span>
+            </div>
+            <div class="settings-item" onclick="openCategoryPanel()">
+                <span>🏷️</span><span>ক্যাটাগরি ব্যবস্থাপনা</span><span>›</span>
+            </div>
+            <div class="settings-item" onclick="exportPDF()">
+                <span>📄</span><span>PDF রিপোর্ট</span><span>›</span>
+            </div>
+            <div class="settings-item" onclick="shareSummary()">
+                <span>📤</span><span>সারসংক্ষেপ শেয়ার</span><span>›</span>
+            </div>
+            <div class="settings-item" onclick="createBackup()">
+                <span>💾</span><span>ব্যাকআপ তৈরি করুন</span><span>›</span>
+            </div>
+            <label class="settings-item" for="restore-file2">
+                <span>♻️</span><span>ব্যাকআপ রিস্টোর করুন</span><span>›</span>
+                <input type="file" id="restore-file2" accept=".json" onchange="restoreBackup(event)" style="display:none">
+            </label>
+            <div class="settings-item" onclick="exportToExcel()">
+                <span>📊</span><span>এক্সেল ডাউনলোড</span><span>›</span>
+            </div>
+            <div class="settings-item" onclick="setNewPin()">
+                <span>🔑</span><span>PIN পরিবর্তন করুন</span><span>›</span>
+            </div>
+            <div class="settings-item" onclick="logoutPrompt()">
+                <span>🚪</span><span>লগআউট</span><span>›</span>
+            </div>
+        </div>
+        <div style="text-align:center; margin-top:16px; font-size:11px; color:#aaa;">স্মার্ট হিসাব v2.0</div>
+    </div>
+
+    </div><!-- /page-content -->
+
+    <nav class="bottom-nav">
+        <button class="nav-item active" id="nav-home" onclick="switchTab('home')">
+            <div class="nav-icon-wrap"><svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg></div>
+            <span>হোম</span>
+        </button>
+        <button class="nav-item" id="nav-history" onclick="switchTab('history')">
+            <div class="nav-icon-wrap"><svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg></div>
+            <span>ইতিহাস</span>
+        </button>
+        <!-- spacer for center FAB -->
+        <div style="flex:1;"></div>
+        <button class="nav-item" id="nav-analytics" onclick="switchTab('analytics')">
+            <div class="nav-icon-wrap"><svg viewBox="0 0 24 24"><path d="M7 17h2v-7H7v7zm4 0h2V7h-2v10zm4 0h2v-4h-2v4zM5 3v18h14V3H5zm12 16H7V5h10v14z"/></svg></div>
+            <span>বিশ্লেষণ</span>
+        </button>
+        <button class="nav-item" id="nav-settings" onclick="switchTab('settings')">
+            <div class="nav-icon-wrap"><svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></div>
+            <span>সেটিংস</span>
+        </button>
+        <!-- Floating center add button (absolute) -->
+        <button class="nav-add-btn" onclick="openEntryPanel()">
+            <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+        </button>
+    </nav>
+
+</div><!-- /app-container -->
+
+<!-- Entry Panel (NEW) -->
+<div class="entry-panel" id="entryPanel">
+    <div class="entry-panel-content">
+        <span class="close-panel" onclick="closeEntryPanel()">×</span>
+        <h2 style="text-align: center; margin-top: 0;">এন্ট্রি যুক্ত করুন</h2>
+        
+        <div class="entry-tabs">
+            <button class="entry-tab active" onclick="switchEntryTab(event, 'income')">আয়</button>
+            <button class="entry-tab" onclick="switchEntryTab(event, 'expense')">ব্যয়</button>
+        </div>
+
+        <!-- Income Form -->
+        <div class="entry-form active" id="income-form">
+            <div class="form-group">
+                <input type="number" id="income-amount" placeholder="৳ পরিমাণ লিখুন">
+            </div>
+            <div class="form-group">
+                <input type="text" id="income-title" placeholder="বিবরণ লিখুন">
+            </div>
+            <div class="form-group">
+                <select id="income-category"></select>
+            </div>
+            <div class="form-group">
+                <textarea id="income-note" placeholder="নোট (ঐচ্ছিক)..."></textarea>
+            </div>
+            <div class="form-group">
+                <input type="date" id="income-date">
+            </div>
+            <button class="submit-btn" onclick="submitEntry('income')">আয় যুক্ত করুন</button>
+        </div>
+
+        <!-- Expense Form -->
+        <div class="entry-form" id="expense-form">
+            <div class="form-group">
+                <input type="number" id="expense-amount" placeholder="৳ পরিমাণ লিখুন">
+            </div>
+            <div class="form-group">
+                <input type="text" id="expense-title" placeholder="বিবরণ লিখুন">
+            </div>
+            <div class="form-group">
+                <select id="expense-category"></select>
+            </div>
+            <div class="form-group">
+                <textarea id="expense-note" placeholder="নোট (ঐচ্ছিক)..."></textarea>
+            </div>
+            <div class="form-group">
+                <input type="date" id="expense-date">
+            </div>
+            <button class="submit-btn" onclick="submitEntry('expense')">ব্যয় যুক্ত করুন</button>
+        </div>
+    </div>
+</div>
+
+<!-- Category Management Panel -->
+<div class="category-panel" id="categoryPanel">
+    <div class="category-panel-content">
+        <span class="close-panel" onclick="closeCategoryPanel()">×</span>
+        <h2 style="text-align: center; margin-top: 0;">ক্যাটাগরি ব্যবস্থাপনা</h2>
+        
+        <div class="cat-tabs">
+            <button class="cat-tab active" onclick="switchCatTab(event, 'income')">আয়</button>
+            <button class="cat-tab" onclick="switchCatTab(event, 'expense')">ব্যয়</button>
+        </div>
+
+        <div class="cat-list" id="catListIncome"></div>
+        <div class="cat-list" id="catListExpense" style="display:none"></div>
+
+        <div class="cat-add-section">
+            <h4>নতুন ক্যাটাগরি যুক্ত করুন</h4>
+            <div class="cat-add-inputs">
+                <input type="text" id="newCatName" placeholder="ক্যাটাগরির নাম">
+                <input type="color" id="newCatColor" value="#e91e63">
+            </div>
+            <button class="cat-add-btn" onclick="addCategory()">যুক্ত করুন</button>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="edit-modal" id="editModal">
+    <div class="edit-modal-content">
+        <span class="close-panel" onclick="closeEditModal()">×</span>
+        <div class="edit-modal-title">✏️ এন্ট্রি সম্পাদনা</div>
+
+        <div class="form-group">
+            <label>ধরন</label>
+            <select id="edit-type">
+                <option value="income">আয়</option>
+                <option value="expense">ব্যয়</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>পরিমাণ (৳)</label>
+            <input type="number" id="edit-amount" placeholder="টাকার পরিমাণ">
+        </div>
+        <div class="form-group">
+            <label>বিবরণ</label>
+            <input type="text" id="edit-title" placeholder="বিবরণ লিখুন">
+        </div>
+        <div class="form-group">
+            <label>ক্যাটাগরি</label>
+            <select id="edit-category"></select>
+        </div>
+        <div class="form-group">
+            <label>নোট (ঐচ্ছিক)</label>
+            <textarea id="edit-note" placeholder="অতিরিক্ত নোট..."></textarea>
+        </div>
+        <div class="form-group">
+            <label>তারিখ</label>
+            <input type="date" id="edit-date">
+        </div>
+        <button class="submit-btn" onclick="saveEdit()">সংরক্ষণ করুন</button>
+    </div>
+</div>
+
+<!-- Side Menu -->
+<div class="menu-overlay" id="overlay" onclick="toggleMenu()"></div>
+<div class="side-menu" id="sideMenu">
+    <div style="display:flex;align-items:center;background:#f1f3f5;border-radius:12px;padding:10px 12px;gap:8px;margin-bottom:4px;border:1.5px solid #dee2e6;">
+        <span style="color:#aaa;font-size:16px;">🔍</span>
+        <input type="text" id="search-input" placeholder="এন্ট্রি খুঁজুন..." oninput="render()" style="flex:1;border:none;outline:none;font-size:14px;background:transparent;color:#333;">
+        <span id="search-clear" style="cursor:pointer;display:none;color:#aaa;font-size:14px;" onclick="clearSearch()">✕</span>
+    </div>
+    <div class="menu-item" onclick="openBudgetModal(); toggleMenu();">📊 বাজেট নির্ধারণ</div>
+    <div class="menu-item" onclick="openBarChartModal(); toggleMenu();">📈 মাসভিত্তিক রিপোর্ট</div>
+    <div class="menu-item" onclick="openCategoryPanel(); toggleMenu();">🏷️ ক্যাটাগরি ব্যবস্থাপনা</div>
+    <div class="menu-item" onclick="exportPDF(); toggleMenu();">📄 PDF রিপোর্ট</div>
+    <div class="menu-item" onclick="shareSummary(); toggleMenu();">📤 সারসংক্ষেপ শেয়ার</div>
+    <div class="menu-item" onclick="createBackup(); toggleMenu();">💾 ব্যাকআপ তৈরি করুন</div>
+    <label class="menu-item" for="restore-file">♻️ ব্যাকআপ রিস্টোর করুন
+        <input type="file" id="restore-file" accept=".json" onchange="restoreBackup(event); toggleMenu();" style="display:none">
+    </label>
+    <div class="menu-item" onclick="exportToExcel(); toggleMenu();">📊 এক্সেল ডাউনলোড</div>
+    <div class="menu-item" onclick="setNewPin(); toggleMenu();">🔑 PIN পরিবর্তন করুন</div>
+</div>
+
+<script>
+
+    // ── Supabase Config ──────────────────────────────────────────────
+    const SUPABASE_URL = 'https://tlxovepgtwtsyesgkkim.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_xpsqJtRcTQyW8Z9mvSwF8w_21khY9BH';
+    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    // ── Global State ──────────────────────────────────────────────────
+    let transactions = [];
+    let currentUser = null;
+    let budgets = {};
+    let barChartInstance = null;
+    let darkMode = false;
+    let userPin = '';
+    let currentCatType = 'income';
+    let currentEntryType = 'income';
+    let categoryChart = null;
+    let categories = {};
+    let currentTab = 'home';
+    let barChartInlineInstance = null;
+    let histView = 'monthly';
+
+    // ── Loading Overlay ───────────────────────────────────────────────
+    function showLoading(msg = 'লোড হচ্ছে...') {
+        let ov = document.getElementById('loading-overlay');
+        if (!ov) {
+            ov = document.createElement('div');
+            ov.id = 'loading-overlay';
+            ov.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+            ov.innerHTML = `<div style="background:white;padding:24px 32px;border-radius:16px;text-align:center;font-size:15px;font-weight:600;color:#333;">${msg}</div>`;
+            document.body.appendChild(ov);
+        } else {
+            ov.querySelector('div').textContent = msg;
+            ov.style.display = 'flex';
+        }
+    }
+    function hideLoading() {
+        const ov = document.getElementById('loading-overlay');
+        if (ov) ov.style.display = 'none';
+    }
+
+    // ── User Dropdown ─────────────────────────────────────────────────
+    function toggleUserMenu(e) {
+        e.stopPropagation();
+        const dd = document.getElementById('user-dropdown');
+        dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+    }
+    function closeUserMenu() {
+        document.getElementById('user-dropdown').style.display = 'none';
+    }
+    document.addEventListener('click', function() { closeUserMenu(); });
+
+    // ── Default Categories ────────────────────────────────────────────
+    const defaultCategories = {
+        income: [
+            { name: 'বেতন', color: '#4CAF50' },
+            { name: 'ব্যবসা', color: '#2196F3' },
+            { name: 'বোনাস', color: '#FF9800' },
+            { name: 'উপহার', color: '#9C27B0' },
+            { name: 'অন্যান্য', color: '#607D8B' }
+        ],
+        expense: [
+            { name: 'খাবার', color: '#F44336' },
+            { name: 'যাতায়াত', color: '#FF5722' },
+            { name: 'বিল', color: '#795548' },
+            { name: 'শপিং', color: '#E91E63' },
+            { name: 'চিকিৎসা', color: '#009688' },
+            { name: 'বিনোদন', color: '#3F51B5' },
+            { name: 'শিক্ষা', color: '#00BCD4' },
+            { name: 'অন্যান্য', color: '#9E9E9E' }
+        ]
+    };
+
+    // ── Auth ──────────────────────────────────────────────────────────
+    function switchAuthTab(tab) {
+        document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
+        if (tab === 'login') {
+            document.querySelector('.auth-tab:nth-child(1)').classList.add('active');
+            document.getElementById('login-form').classList.add('active');
+        } else if (tab === 'register') {
+            document.querySelector('.auth-tab:nth-child(2)').classList.add('active');
+            document.getElementById('register-form').classList.add('active');
+        } else if (tab === 'forgot') {
+            document.getElementById('forgot-form').classList.add('active');
+        }
+    }
+
+    function showForgotForm() {
+        document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
+        document.getElementById('forgot-form').classList.add('active');
+        document.getElementById('forgot-error').textContent = '';
+        document.getElementById('forgot-success').textContent = '';
+        document.getElementById('forgot-step1').style.display = 'block';
+        document.getElementById('forgot-step2').style.display = 'none';
+        document.getElementById('forgot-step3').style.display = 'none';
+        document.getElementById('forgot-username').value = '';
+        forgotVerifiedUser = null;
+    }
+
+    let forgotVerifiedUser = null;
+
+    async function loadSecurityQuestion() {
+        const username = document.getElementById('forgot-username').value.trim().toLowerCase();
+        const errEl = document.getElementById('forgot-error');
+        errEl.textContent = '';
+        if (!username) { errEl.textContent = 'ইউজারনেম দিন'; return; }
+        showLoading('যাচাই করছি...');
+        const { data, error } = await sb.from('users').select('security_question').eq('username', username).single();
+        hideLoading();
+        if (error || !data) { errEl.textContent = 'ইউজারনেম পাওয়া যায়নি'; return; }
+        if (!data.security_question) { errEl.textContent = 'এই অ্যাকাউন্টে নিরাপত্তা প্রশ্ন নেই'; return; }
+        forgotVerifiedUser = username;
+        document.getElementById('forgot-sq-text').textContent = '❓ ' + data.security_question;
+        document.getElementById('forgot-step1').style.display = 'none';
+        document.getElementById('forgot-step2').style.display = 'block';
+        document.getElementById('forgot-sq-answer').value = '';
+        document.getElementById('forgot-sq-answer').focus();
+    }
+
+    async function verifySecurityAnswer() {
+        const answer = document.getElementById('forgot-sq-answer').value.trim();
+        const errEl = document.getElementById('forgot-error');
+        errEl.textContent = '';
+        if (!answer) { errEl.textContent = 'উত্তর দিন'; return; }
+        showLoading('যাচাই করছি...');
+        const { data } = await sb.from('users').select('security_answer').eq('username', forgotVerifiedUser).single();
+        hideLoading();
+        if (!data || answer.toLowerCase() !== data.security_answer.toLowerCase().trim()) {
+            errEl.textContent = 'উত্তর সঠিক নয়, আবার চেষ্টা করুন';
+            return;
+        }
+        document.getElementById('forgot-step2').style.display = 'none';
+        document.getElementById('forgot-step3').style.display = 'block';
+        document.getElementById('forgot-new-pin').focus();
+    }
+
+    async function doResetPin() {
+        const newPin = document.getElementById('forgot-new-pin').value;
+        const newPin2 = document.getElementById('forgot-new-pin2').value;
+        const errEl = document.getElementById('forgot-error');
+        const succEl = document.getElementById('forgot-success');
+        errEl.textContent = '';
+        if (!newPin || newPin.length !== 4 || !/^\d+$/.test(newPin)) { errEl.textContent = 'PIN ঠিক ৪টি সংখ্যার হতে হবে'; return; }
+        if (newPin !== newPin2) { errEl.textContent = 'PIN দুটি মিলছে না'; return; }
+        showLoading('সংরক্ষণ করছি...');
+        await sb.from('users').update({ pin: newPin }).eq('username', forgotVerifiedUser);
+        hideLoading();
+        succEl.textContent = '🎉 PIN সফলভাবে রিসেট হয়েছে!';
+        forgotVerifiedUser = null;
+        setTimeout(() => switchAuthTab('login'), 1800);
+    }
+
+    async function doLogin() {
+        const username = document.getElementById('login-username').value.trim().toLowerCase();
+        const pin = document.getElementById('login-pin').value;
+        const errEl = document.getElementById('login-error');
+        errEl.textContent = '';
+        if (!username) { errEl.textContent = 'ইউজারনেম দিন'; return; }
+        if (!pin || pin.length !== 4) { errEl.textContent = 'সঠিক ৪ সংখ্যার PIN দিন'; return; }
+        showLoading('লগইন হচ্ছে...');
+        const { data, error } = await sb.from('users').select('*').eq('username', username).single();
+        if (error || !data) { hideLoading(); errEl.textContent = 'ইউজারনেম পাওয়া যায়নি'; return; }
+        if (data.pin !== pin) { hideLoading(); errEl.textContent = 'PIN ভুল হয়েছে'; return; }
+        currentUser = { username: data.username, displayName: data.display_name };
+        userPin = data.pin;
+        document.getElementById('auth-screen').style.display = 'none';
+        await init();
+        hideLoading();
+    }
+
+    async function doRegister() {
+        const username = document.getElementById('reg-username').value.trim();
+        const pin = document.getElementById('reg-pin').value;
+        const pin2 = document.getElementById('reg-pin2').value;
+        const secQuestion = document.getElementById('reg-sq').value;
+        const secAnswer = document.getElementById('reg-sq-answer').value.trim();
+        const errEl = document.getElementById('reg-error');
+        const succEl = document.getElementById('reg-success');
+        errEl.textContent = ''; succEl.textContent = '';
+
+        if (!username || username.length < 3) { errEl.textContent = 'ইউজারনেম কমপক্ষে ৩ অক্ষরের হতে হবে'; return; }
+        if (!/^[a-zA-Z0-9_\u0980-\u09FF]+$/.test(username)) { errEl.textContent = 'ইউজারনেমে শুধু অক্ষর, সংখ্যা বা _ ব্যবহার করুন'; return; }
+        if (!pin || pin.length !== 4 || !/^\d+$/.test(pin)) { errEl.textContent = 'PIN ঠিক ৪টি সংখ্যার হতে হবে'; return; }
+        if (pin !== pin2) { errEl.textContent = 'PIN দুটি মিলছে না'; return; }
+        if (!secQuestion) { errEl.textContent = 'একটি নিরাপত্তা প্রশ্ন বেছে নিন'; return; }
+        if (!secAnswer || secAnswer.length < 2) { errEl.textContent = 'নিরাপত্তা প্রশ্নের উত্তর দিন'; return; }
+
+        showLoading('নিবন্ধন হচ্ছে...');
+        const { error } = await sb.from('users').insert({
+            username: username.toLowerCase(),
+            display_name: username,
+            pin,
+            security_question: secQuestion,
+            security_answer: secAnswer
+        });
+        hideLoading();
+
+        if (error) {
+            if (error.code === '23505') errEl.textContent = 'এই ইউজারনেম আগেই নেওয়া হয়েছে';
+            else errEl.textContent = 'সমস্যা হয়েছে: ' + error.message;
+            return;
+        }
+
+        // Default categories সেভ করা
+        const catRows = [];
+        defaultCategories.income.forEach(c => catRows.push({ username: username.toLowerCase(), type: 'income', name: c.name, color: c.color }));
+        defaultCategories.expense.forEach(c => catRows.push({ username: username.toLowerCase(), type: 'expense', name: c.name, color: c.color }));
+        await sb.from('categories').insert(catRows);
+
+        succEl.textContent = '✅ নিবন্ধন সফল! এখন লগইন করুন।';
+        document.getElementById('reg-username').value = '';
+        document.getElementById('reg-pin').value = '';
+        document.getElementById('reg-pin2').value = '';
+        document.getElementById('reg-sq').value = '';
+        document.getElementById('reg-sq-answer').value = '';
+        setTimeout(() => switchAuthTab('login'), 1500);
+    }
+
+    async function logoutPrompt() {
+        if (confirm(`${currentUser.displayName} — লগআউট করবেন?`)) {
+            currentUser = null;
+            transactions = [];
+            budgets = {};
+            categories = {};
+            document.getElementById('auth-screen').style.display = 'flex';
+            document.getElementById('app-container').style.display = 'none';
+            document.getElementById('login-username').value = '';
+            document.getElementById('login-pin').value = '';
+            document.getElementById('login-error').textContent = '';
+            if (categoryChart) { categoryChart.destroy(); categoryChart = null; }
+            if (barChartInstance) { barChartInstance.destroy(); barChartInstance = null; }
+        }
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────
+    async function init() {
+        showLoading('ডাটা লোড হচ্ছে...');
+
+        // Transactions
+        const { data: txData } = await sb.from('transactions').select('*').eq('username', currentUser.username).order('date', { ascending: false });
+        transactions = txData || [];
+
+        // Categories
+        const { data: catData } = await sb.from('categories').select('*').eq('username', currentUser.username);
+        if (catData && catData.length > 0) {
+            categories = { income: [], expense: [] };
+            catData.forEach(c => {
+                if (c.type === 'income') categories.income.push({ name: c.name, color: c.color });
+                else categories.expense.push({ name: c.name, color: c.color });
+            });
+        } else {
+            categories = JSON.parse(JSON.stringify(defaultCategories));
+        }
+
+        // Budgets
+        const { data: budData } = await sb.from('budgets').select('*').eq('username', currentUser.username);
+        budgets = {};
+        if (budData) budData.forEach(b => { budgets[b.category] = b.amount; });
+
+        document.getElementById('app-container').style.display = '';
+        document.getElementById('user-indicator').textContent = '👤 ' + currentUser.displayName;
+        const ddn = document.getElementById('user-dropdown-name');
+        if (ddn) ddn.textContent = '👤 ' + currentUser.displayName;
+
+        populateFilters();
+        populateCategorySelects();
+        renderCategoryLists();
+        setTodayDate();
+        render();
+        renderBudgetSection();
+        hideLoading();
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────
+    function setTodayDate() {
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('income-date').value = today;
+        document.getElementById('expense-date').value = today;
+    }
+
+    function populateFilters() {
+        const months = ['জানুয়ারি','ফেব্রুয়ারি','মার্চ','এপ্রিল','মে','জুন','জুলাই','আগস্ট','সেপ্টেম্বর','অক্টোবর','নভেম্বর','ডিসেম্বর'];
+        const monthSelect = document.getElementById('filter-month');
+        const yearSelect = document.getElementById('filter-year');
+        const yearOnlySelect = document.getElementById('filter-year-only');
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+
+        monthSelect.innerHTML = '';
+        months.forEach((m, i) => {
+            monthSelect.innerHTML += `<option value="${i}" ${i===currentMonth?'selected':''}>${m}</option>`;
+        });
+        yearSelect.innerHTML = '';
+        yearOnlySelect.innerHTML = '';
+        for (let y = currentYear; y >= currentYear - 10; y--) {
+            yearSelect.innerHTML += `<option value="${y}" ${y===currentYear?'selected':''}>${y}</option>`;
+            yearOnlySelect.innerHTML += `<option value="${y}" ${y===currentYear?'selected':''}>${y}</option>`;
+        }
+        monthSelect.onchange = renderHistory;
+        yearSelect.onchange = renderHistory;
+        yearOnlySelect.onchange = renderHistory;
+        document.getElementById('filter-start-date').onchange = renderHistory;
+        document.getElementById('filter-end-date').onchange = renderHistory;
+    }
+
+    function populateCategorySelects() {
+        const incomeSelect = document.getElementById('income-category');
+        const expenseSelect = document.getElementById('expense-category');
+        incomeSelect.innerHTML = '<option value="">ক্যাটাগরি নির্বাচন করুন</option>';
+        categories.income.forEach(cat => {
+            incomeSelect.innerHTML += `<option value="${cat.name}">${escapeHtml(cat.name)}</option>`;
+        });
+        expenseSelect.innerHTML = '<option value="">ক্যাটাগরি নির্বাচন করুন</option>';
+        categories.expense.forEach(cat => {
+            expenseSelect.innerHTML += `<option value="${cat.name}">${escapeHtml(cat.name)}</option>`;
+        });
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatDate(dateStr) {
+        const months = ['জানুয়ারি','ফেব্রুয়ারি','মার্চ','এপ্রিল','মে','জুন','জুলাই','আগস্ট','সেপ্টেম্বর','অক্টোবর','নভেম্বর','ডিসেম্বর'];
+        const d = new Date(dateStr + 'T00:00:00');
+        return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+    }
+
+    function getCategoryColor(categoryName) {
+        for (let cat of categories.income) { if (cat.name === categoryName) return cat.color; }
+        for (let cat of categories.expense) { if (cat.name === categoryName) return cat.color; }
+        return '#999';
+    }
+
+    // ── Entry Panel ───────────────────────────────────────────────────
+    function openEntryPanel() {
+        document.getElementById('entryPanel').classList.add('active');
+    }
+    function closeEntryPanel() {
+        document.getElementById('entryPanel').classList.remove('active');
+        clearEntryForms();
+    }
+    function clearEntryForms() {
+        ['income-amount','income-title','income-note','expense-amount','expense-title','expense-note'].forEach(id => {
+            document.getElementById(id).value = '';
+        });
+        document.getElementById('income-category').value = '';
+        document.getElementById('expense-category').value = '';
+        setTodayDate();
+    }
+    function switchEntryTab(event, type) {
+        currentEntryType = type;
+        document.querySelectorAll('.entry-tab').forEach(t => t.classList.remove('active'));
+        event.target.classList.add('active');
+        document.getElementById('income-form').classList.remove('active');
+        document.getElementById('expense-form').classList.remove('active');
+        document.getElementById(type + '-form').classList.add('active');
+    }
+
+    async function submitEntry(type) {
+        const amount = parseFloat(document.getElementById(`${type}-amount`).value);
+        const title = document.getElementById(`${type}-title`).value.trim();
+        const category = document.getElementById(`${type}-category`).value;
+        const dateStr = document.getElementById(`${type}-date`).value;
+        const note = document.getElementById(`${type}-note`).value.trim();
+
+        if (!amount || amount <= 0) { alert('অনুগ্রহ করে সঠিক টাকার পরিমাণ দিন'); return; }
+        if (!title) { alert('অনুগ্রহ করে বিবরণ দিন'); return; }
+        if (!category) { alert('অনুগ্রহ করে ক্যাটাগরি নির্বাচন করুন'); return; }
+        if (!dateStr) { alert('অনুগ্রহ করে তারিখ নির্বাচন করুন'); return; }
+
+        const newTx = {
+            id: Date.now().toString(),
+            username: currentUser.username,
+            date: dateStr,
+            type,
+            amount,
+            title,
+            category,
+            note
+        };
+
+        showLoading('সংরক্ষণ হচ্ছে...');
+        const { error } = await sb.from('transactions').insert(newTx);
+        hideLoading();
+
+        if (error) { alert('সমস্যা হয়েছে: ' + error.message); return; }
+
+        transactions.unshift(newTx);
+        render();
+        closeEntryPanel();
+        alert(`${type === 'income' ? 'আয়' : 'ব্যয়'} সফলভাবে যুক্ত হয়েছে!`);
+    }
+
+    // ── Category Panel ────────────────────────────────────────────────
+    function openCategoryPanel() {
+        document.getElementById('categoryPanel').classList.add('active');
+        renderCategoryLists();
+    }
+    function closeCategoryPanel() {
+        document.getElementById('categoryPanel').classList.remove('active');
+    }
+    function switchCatTab(event, type) {
+        currentCatType = type;
+        document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
+        event.target.classList.add('active');
+        document.getElementById('catListIncome').style.display = type === 'income' ? 'block' : 'none';
+        document.getElementById('catListExpense').style.display = type === 'expense' ? 'block' : 'none';
+    }
+    function renderCategoryLists() {
+        ['income','expense'].forEach(type => {
+            const el = document.getElementById('catList' + (type === 'income' ? 'Income' : 'Expense'));
+            el.innerHTML = '';
+            categories[type].forEach((cat, index) => {
+                el.innerHTML += `<div class="cat-item">
+                    <div class="cat-item-info">
+                        <span class="cat-color-dot" style="background-color:${cat.color}"></span>
+                        <span>${escapeHtml(cat.name)}</span>
+                    </div>
+                    <div class="cat-actions">
+                        <button class="cat-edit-btn" onclick="editCategory('${type}',${index})">সম্পাদনা</button>
+                        <button class="cat-delete-btn" onclick="deleteCategory('${type}',${index})">মুছুন</button>
+                    </div>
+                </div>`;
+            });
+        });
+    }
+
+    async function addCategory() {
+        const name = document.getElementById('newCatName').value.trim();
+        const color = document.getElementById('newCatColor').value;
+        if (!name) { alert('ক্যাটাগরির নাম দিন'); return; }
+        if (categories[currentCatType].some(c => c.name.toLowerCase() === name.toLowerCase())) {
+            alert('এই নামে ক্যাটাগরি আগে থেকেই আছে'); return;
+        }
+        showLoading('যুক্ত হচ্ছে...');
+        const { error } = await sb.from('categories').insert({ username: currentUser.username, type: currentCatType, name, color });
+        hideLoading();
+        if (error) { alert('সমস্যা হয়েছে'); return; }
+        categories[currentCatType].push({ name, color });
+        populateCategorySelects();
+        renderCategoryLists();
+        document.getElementById('newCatName').value = '';
+        document.getElementById('newCatColor').value = '#e91e63';
+        alert('ক্যাটাগরি যুক্ত হয়েছে!');
+    }
+
+    async function editCategory(type, index) {
+        const cat = categories[type][index];
+        const newName = prompt('নতুন নাম:', cat.name);
+        if (!newName || !newName.trim()) return;
+        showLoading('আপডেট হচ্ছে...');
+        await sb.from('categories').update({ name: newName.trim() })
+            .eq('username', currentUser.username).eq('type', type).eq('name', cat.name);
+        hideLoading();
+        categories[type][index].name = newName.trim();
+        populateCategorySelects();
+        renderCategoryLists();
+        render();
+    }
+
+    async function deleteCategory(type, index) {
+        if (!confirm('এই ক্যাটাগরি মুছে ফেলবেন?')) return;
+        const cat = categories[type][index];
+        showLoading('মুছা হচ্ছে...');
+        await sb.from('categories').delete().eq('username', currentUser.username).eq('type', type).eq('name', cat.name);
+        hideLoading();
+        categories[type].splice(index, 1);
+        populateCategorySelects();
+        renderCategoryLists();
+        render();
+    }
+
+    // ── Render Home ───────────────────────────────────────────────────
+    function updateCardTitles() {
+        document.getElementById('card-income-title').textContent = 'আজকের আয়';
+        document.getElementById('card-expense-title').textContent = 'আজকের ব্যয়';
+        document.getElementById('card-balance-title').textContent = 'মোট ব্যালেন্স';
+    }
+
+    function render() {
+        const list = document.getElementById('list');
+        const todayStr = new Date().toISOString().split('T')[0];
+        let listData = transactions.filter(item => item.date === todayStr);
+
+        // Search
+        const searchQ = document.getElementById('search-input') ? document.getElementById('search-input').value.trim().toLowerCase() : '';
+        const clearBtn = document.getElementById('search-clear');
+        if (clearBtn) clearBtn.style.display = searchQ ? 'inline' : 'none';
+        if (searchQ) {
+            listData = listData.filter(item =>
+                item.title.toLowerCase().includes(searchQ) ||
+                (item.category || '').toLowerCase().includes(searchQ) ||
+                (item.note || '').toLowerCase().includes(searchQ)
+            );
+        }
+
+        list.innerHTML = '';
+        [...listData].forEach(item => {
+            const typeText = item.type === 'income' ? 'আয়' : 'ব্যয়';
+            const category = item.category || 'সাধারণ';
+            list.innerHTML += `<div class="item" style="border-left-color:${item.type==='income'?'var(--income-green)':'var(--expense-red)'}">
+                <div style="flex:1;">
+                    <b>${escapeHtml(item.title)}</b><span class="cat-badge">${escapeHtml(category)}</span>
+                    <br><small style="color:#888">${formatDate(item.date)}</small>
+                    ${item.note ? `<div class="item-note">📝 ${escapeHtml(item.note)}</div>` : ''}
+                </div>
+                <div style="text-align:right;white-space:nowrap;display:flex;align-items:center;gap:2px;">
+                    <div style="color:${item.type==='income'?'var(--income-green)':'var(--expense-red)'};font-weight:bold">${typeText} ৳${item.amount.toLocaleString('bn-BD')}</div>
+                    <div class="item-actions">
+                        <button class="three-dot-btn" onclick="toggleDropdown(event,'${item.id}')">⋮</button>
+                        <div class="dropdown-menu" id="dd-${item.id}">
+                            <button class="dropdown-item edit" onclick="openEditModal('${item.id}');closeAllDropdowns()">✏️ এডিট</button>
+                            <div class="dropdown-divider"></div>
+                            <button class="dropdown-item delete" onclick="deleteWithPin('${item.id}');closeAllDropdowns()">🗑️ মুছুন</button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        });
+
+        if (listData.length === 0) list.innerHTML = '<p class="empty-state">কোনো এন্ট্রি নেই</p>';
+
+        // Summary cards
+        const todayData = transactions.filter(i => i.date === todayStr);
+        const todayIncome = todayData.filter(i => i.type === 'income').reduce((s,i) => s+i.amount, 0);
+        const todayExpense = todayData.filter(i => i.type === 'expense').reduce((s,i) => s+i.amount, 0);
+        const allIncome = transactions.filter(i => i.type === 'income').reduce((s,i) => s+i.amount, 0);
+        const allExpense = transactions.filter(i => i.type === 'expense').reduce((s,i) => s+i.amount, 0);
+
+        document.getElementById('total-income').textContent = '৳' + todayIncome.toLocaleString('bn-BD');
+        document.getElementById('total-expense').textContent = '৳' + todayExpense.toLocaleString('bn-BD');
+        document.getElementById('balance').textContent = '৳' + (allIncome - allExpense).toLocaleString('bn-BD');
+
+        const todayLabelEl = document.getElementById('today-date-label');
+        if (todayLabelEl) {
+            const days = ['রবিবার','সোমবার','মঙ্গলবার','বুধবার','বৃহস্পতিবার','শুক্রবার','শনিবার'];
+            const months = ['জানু','ফেব্রু','মার্চ','এপ্রিল','মে','জুন','জুলাই','আগস্ট','সেপ্টে','অক্টো','নভে','ডিসে'];
+            const d = new Date();
+            todayLabelEl.textContent = days[d.getDay()] + ', ' + d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
+        }
+
+        updateChartAndList(listData);
+        updateCardTitles();
+        renderBudgetSection();
+        if (currentTab === 'history') renderHistory();
+    }
+
+    // ── Chart ─────────────────────────────────────────────────────────
+    function updateChartAndList(listData) {
+        const expenseStats = {};
+        listData.forEach(item => {
+            if (item.type !== 'expense') return;
+            const cat = item.category || 'সাধারণ';
+            if (!expenseStats[cat]) expenseStats[cat] = { amount: 0 };
+            expenseStats[cat].amount += item.amount;
+        });
+
+        const totalExpense = listData.filter(i => i.type === 'expense').reduce((s,i) => s+i.amount, 0);
+        const labels = Object.keys(expenseStats);
+        const chartData = labels.map(cat => expenseStats[cat].amount);
+        const colors = labels.map(cat => getCategoryColor(cat));
+
+        const chartCanvas = document.getElementById('categoryChart');
+        const ctx = chartCanvas.getContext('2d');
+        if (categoryChart) categoryChart.destroy();
+
+        if (labels.length === 0) {
+            ctx.clearRect(0, 0, chartCanvas.width, chartCanvas.height);
+            ctx.font = '14px Arial'; ctx.fillStyle = '#999'; ctx.textAlign = 'center';
+            ctx.fillText('কোনো ব্যয় নেই', chartCanvas.width/2, chartCanvas.height/2);
+            document.getElementById('categoryList').innerHTML = '<p style="text-align:center;color:#999;padding:20px;">কোনো ব্যয় নেই</p>';
+            return;
+        }
+
+        categoryChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: { labels, datasets: [{ data: chartData, backgroundColor: colors, borderWidth: 3, borderColor: 'white' }] },
+            options: {
+                responsive: true, maintainAspectRatio: false, cutout: '65%',
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: function(context) {
+                        const cat = context.label;
+                        const amount = expenseStats[cat].amount;
+                        const pct = totalExpense > 0 ? ((amount/totalExpense)*100).toFixed(1) : 0;
+                        return [`${cat}: ৳${amount.toLocaleString('bn-BD')}`, `মোট ব্যয়ের ${pct}%`];
+                    }}}
+                }
+            }
+        });
+
+        const categoryList = document.getElementById('categoryList');
+        categoryList.innerHTML = '';
+        labels.sort((a,b) => expenseStats[b].amount - expenseStats[a].amount).forEach(cat => {
+            const amount = expenseStats[cat].amount;
+            const color = getCategoryColor(cat);
+            const pct = totalExpense > 0 ? ((amount/totalExpense)*100).toFixed(1) : 0;
+            const div = document.createElement('div');
+            div.className = 'category-item';
+            div.innerHTML = `<div class="category-name"><span class="color-dot" style="background-color:${color};"></span><span>${escapeHtml(cat)}</span></div>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <span style="font-size:11px;font-weight:700;color:#fff;background:${color};padding:2px 7px;border-radius:10px;min-width:38px;text-align:center;">${pct}%</span>
+                    <span class="category-amount">৳${amount.toLocaleString('bn-BD')}</span>
+                </div>`;
+            categoryList.appendChild(div);
+        });
+    }
+
+    // ── Edit & Delete ─────────────────────────────────────────────────
+    let editingId = null;
+
+    function toggleDropdown(e, id) {
+        e.stopPropagation();
+        closeAllDropdowns();
+        const dd = document.getElementById('dd-' + id);
+        if (dd) dd.classList.toggle('open');
+    }
+    function closeAllDropdowns() {
+        document.querySelectorAll('.dropdown-menu.open').forEach(d => d.classList.remove('open'));
+    }
+    document.addEventListener('click', closeAllDropdowns);
+
+    function openEditModal(id) {
+        const item = transactions.find(i => i.id === id);
+        if (!item) return;
+        editingId = id;
+        document.getElementById('edit-type').value = item.type;
+        populateEditCategorySelect(item.type, item.category);
+        document.getElementById('edit-amount').value = item.amount;
+        document.getElementById('edit-title').value = item.title;
+        document.getElementById('edit-date').value = item.date;
+        document.getElementById('edit-note').value = item.note || '';
+        document.getElementById('edit-type').onchange = function() { populateEditCategorySelect(this.value, ''); };
+        document.getElementById('editModal').classList.add('active');
+    }
+    function populateEditCategorySelect(type, selectedCat) {
+        const sel = document.getElementById('edit-category');
+        sel.innerHTML = '<option value="">ক্যাটাগরি নির্বাচন করুন</option>';
+        categories[type].forEach(cat => {
+            const opt = document.createElement('option');
+            opt.value = cat.name; opt.textContent = cat.name;
+            if (cat.name === selectedCat) opt.selected = true;
+            sel.appendChild(opt);
+        });
+    }
+    function closeEditModal() {
+        document.getElementById('editModal').classList.remove('active');
+        editingId = null;
+    }
+
+    async function saveEdit() {
+        const amount = parseFloat(document.getElementById('edit-amount').value);
+        const title = document.getElementById('edit-title').value.trim();
+        const category = document.getElementById('edit-category').value;
+        const dateStr = document.getElementById('edit-date').value;
+        const type = document.getElementById('edit-type').value;
+        const note = document.getElementById('edit-note').value.trim();
+
+        if (!amount || amount <= 0) { alert('সঠিক পরিমাণ দিন'); return; }
+        if (!title) { alert('বিবরণ দিন'); return; }
+        if (!category) { alert('ক্যাটাগরি নির্বাচন করুন'); return; }
+        if (!dateStr) { alert('তারিখ নির্বাচন করুন'); return; }
+
+        showLoading('আপডেট হচ্ছে...');
+        const { error } = await sb.from('transactions').update({ type, amount, title, category, date: dateStr, note }).eq('id', editingId);
+        hideLoading();
+        if (error) { alert('সমস্যা হয়েছে'); return; }
+
+        const idx = transactions.findIndex(i => i.id === editingId);
+        if (idx !== -1) transactions[idx] = { ...transactions[idx], type, amount, title, category, date: dateStr, note };
+        render();
+        closeEditModal();
+        alert('এন্ট্রি সফলভাবে আপডেট হয়েছে!');
+    }
+
+    async function deleteWithPin(id) {
+        const enteredPin = prompt('ডিলিট করতে PIN দিন:');
+        if (enteredPin === null) return;
+        if (enteredPin !== userPin) { alert('ভুল PIN!'); return; }
+        if (!confirm('এই এন্ট্রি মুছে ফেলবেন?')) return;
+        showLoading('মুছা হচ্ছে...');
+        const { error } = await sb.from('transactions').delete().eq('id', id);
+        hideLoading();
+        if (error) { alert('সমস্যা হয়েছে'); return; }
+        transactions = transactions.filter(i => i.id !== id);
+        render();
+        if (currentTab === 'history') renderHistory();
+        alert('এন্ট্রি মুছে দেওয়া হয়েছে');
+    }
+
+    // ── Side Menu ─────────────────────────────────────────────────────
+    function toggleMenu() {
+        document.getElementById('sideMenu').classList.toggle('active');
+        document.getElementById('overlay').classList.toggle('active');
+    }
+    function clearSearch() {
+        document.getElementById('search-input').value = '';
+        document.getElementById('search-clear').style.display = 'none';
+        render();
+    }
+
+    // ── PIN Change ────────────────────────────────────────────────────
+    async function setNewPin() {
+        const oldPin = prompt('বর্তমান PIN:');
+        if (oldPin === null) return;
+        if (oldPin !== userPin) { alert('বর্তমান PIN ভুল!'); return; }
+        const newPin = prompt('নতুন ৪ সংখ্যার PIN দিন:');
+        if (newPin === null) return;
+        if (!newPin || newPin.length !== 4 || !/^\d+$/.test(newPin)) { alert('PIN ঠিক ৪টি সংখ্যার হতে হবে!'); return; }
+        showLoading('সংরক্ষণ হচ্ছে...');
+        await sb.from('users').update({ pin: newPin }).eq('username', currentUser.username);
+        hideLoading();
+        userPin = newPin;
+        alert('PIN সফলভাবে পরিবর্তন করা হয়েছে!');
+    }
+
+    // ── History Tab ───────────────────────────────────────────────────
+    function setHistView(event, view) {
+        histView = view;
+        document.querySelectorAll('#page-history .view-btn').forEach(b => b.classList.remove('active'));
+        event.target.classList.add('active');
+        document.getElementById('hist-monthly-filter').style.display = view === 'monthly' ? 'flex' : 'none';
+        document.getElementById('hist-yearly-filter').style.display = view === 'yearly' ? 'flex' : 'none';
+        document.getElementById('hist-custom-filter').style.display = view === 'custom' ? 'block' : 'none';
+        renderHistory();
+    }
+
+    function renderHistory() {
+        const q = (document.getElementById('history-search')?.value || '').trim().toLowerCase();
+        const container = document.getElementById('history-list');
+        if (!container) return;
+
+        const now = new Date();
+        const selM = parseInt(document.getElementById('filter-month')?.value ?? now.getMonth());
+        const selY = parseInt(document.getElementById('filter-year')?.value ?? now.getFullYear());
+        const selYOnly = parseInt(document.getElementById('filter-year-only')?.value ?? now.getFullYear());
+        const startDate = document.getElementById('filter-start-date')?.value || '';
+        const endDate = document.getElementById('filter-end-date')?.value || '';
+
+        let data = [...transactions].sort((a,b) => b.date.localeCompare(a.date));
+
+        if (histView === 'monthly') {
+            data = data.filter(t => {
+                const d = new Date(t.date + 'T00:00:00');
+                return d.getMonth() === selM && d.getFullYear() === selY;
+            });
+        } else if (histView === 'yearly') {
+            data = data.filter(t => new Date(t.date + 'T00:00:00').getFullYear() === selYOnly);
+        } else if (histView === 'custom' && startDate && endDate) {
+            data = data.filter(t => t.date >= startDate && t.date <= endDate);
+        } else if (histView === 'custom') {
+            data = [];
+        }
+
+        const hIncome = data.filter(i=>i.type==='income').reduce((s,i)=>s+i.amount,0);
+        const hExpense = data.filter(i=>i.type==='expense').reduce((s,i)=>s+i.amount,0);
+        const labels = { monthly:'মাসিক', yearly:'বার্ষিক', custom:'নির্বাচিত' };
+        const lbl = labels[histView] || '';
+        const hii = document.getElementById('hist-total-income');
+        const hei = document.getElementById('hist-total-expense');
+        const hbi = document.getElementById('hist-balance');
+        const hit = document.getElementById('hist-income-title');
+        const het = document.getElementById('hist-expense-title');
+        if (hii) hii.textContent = '৳' + hIncome.toLocaleString('bn-BD');
+        if (hei) hei.textContent = '৳' + hExpense.toLocaleString('bn-BD');
+        if (hbi) hbi.textContent = '৳' + (hIncome - hExpense).toLocaleString('bn-BD');
+        if (hit) hit.textContent = lbl + ' আয়';
+        if (het) het.textContent = lbl + ' ব্যয়';
+
+        if (q) data = data.filter(t =>
+            t.title.toLowerCase().includes(q) ||
+            (t.category||'').toLowerCase().includes(q) ||
+            (t.note||'').toLowerCase().includes(q)
+        );
+
+        if (data.length === 0) { container.innerHTML = '<p class="empty-state">কোনো লেনদেন নেই</p>'; return; }
+
+        container.innerHTML = '';
+        data.forEach(item => {
+            const typeText = item.type === 'income' ? 'আয়' : 'ব্যয়';
+            const color = item.type === 'income' ? 'var(--income-green)' : 'var(--expense-red)';
+            container.innerHTML += `<div class="item" style="border-left-color:${color}">
+                <div style="flex:1;">
+                    <b>${escapeHtml(item.title)}</b><span class="cat-badge">${escapeHtml(item.category||'সাধারণ')}</span>
+                    <br><small style="color:#888">${formatDate(item.date)}</small>
+                    ${item.note ? `<div class="item-note">📝 ${escapeHtml(item.note)}</div>` : ''}
+                </div>
+                <div style="text-align:right;white-space:nowrap;display:flex;align-items:center;gap:2px;">
+                    <div style="color:${color};font-weight:bold">${typeText} ৳${item.amount.toLocaleString('bn-BD')}</div>
+                    <div class="item-actions">
+                        <button class="three-dot-btn" onclick="toggleDropdown(event,'${item.id}')">⋮</button>
+                        <div class="dropdown-menu" id="dd-${item.id}">
+                            <button class="dropdown-item edit" onclick="openEditModal('${item.id}');closeAllDropdowns()">✏️ এডিট</button>
+                            <div class="dropdown-divider"></div>
+                            <button class="dropdown-item delete" onclick="deleteWithPin('${item.id}');closeAllDropdowns()">🗑️ মুছুন</button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        });
+    }
+
+    // ── Tab Navigation ────────────────────────────────────────────────
+    function switchTab(tab) {
+        currentTab = tab;
+        const pc = document.getElementById('pageContent');
+        if (pc) pc.scrollTop = 0;
+        ['list','page-history','page-analytics','page-settings'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) { el.style.display = 'none'; el.style.flexDirection = ''; }
+        });
+        const fixedTop = document.querySelector('.fixed-top-section');
+        const budgetSec = document.getElementById('budgetSection');
+        if (tab === 'home') {
+            if (fixedTop) fixedTop.style.display = '';
+            if (budgetSec) budgetSec.style.display = '';
+            document.getElementById('list').style.display = '';
+            document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+            document.getElementById('nav-home').classList.add('active');
+        } else if (tab === 'history') {
+            if (fixedTop) fixedTop.style.display = 'none';
+            if (budgetSec) budgetSec.style.display = 'none';
+            const histPage = document.getElementById('page-history');
+            histPage.style.display = 'flex';
+            histPage.style.flexDirection = 'column';
+            histPage.style.height = '100%';
+            document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+            document.getElementById('nav-history').classList.add('active');
+            populateFilters();
+            renderHistory();
+        } else if (tab === 'analytics') {
+            if (fixedTop) fixedTop.style.display = 'none';
+            if (budgetSec) budgetSec.style.display = 'none';
+            document.getElementById('page-analytics').style.display = 'block';
+            document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+            document.getElementById('nav-analytics').classList.add('active');
+            setTimeout(() => { updateChartAndList(transactions); renderBarChartInline(); }, 50);
+        } else if (tab === 'settings') {
+            if (fixedTop) fixedTop.style.display = 'none';
+            if (budgetSec) budgetSec.style.display = 'none';
+            document.getElementById('page-settings').style.display = 'block';
+            document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+            document.getElementById('nav-settings').classList.add('active');
+        }
+    }
+
+    // ── Analytics ─────────────────────────────────────────────────────
+    function renderBarChartInline() {
+        const months = ['জানু','ফেব্রু','মার্চ','এপ্রিল','মে','জুন','জুলাই','আগস্ট','সেপ্টে','অক্টো','নভে','ডিসে'];
+        const now = new Date();
+        const labels = [], incomeData = [], expenseData = [];
+        for (let i = 5; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const m = d.getMonth(), y = d.getFullYear();
+            labels.push(months[m]);
+            const mTx = transactions.filter(t => {
+                const td = new Date(t.date + 'T00:00:00');
+                return td.getMonth() === m && td.getFullYear() === y;
+            });
+            incomeData.push(mTx.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0));
+            expenseData.push(mTx.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0));
+        }
+        if (barChartInlineInstance) barChartInlineInstance.destroy();
+        const canvas = document.getElementById('barChartInline');
+        if (!canvas) return;
+        barChartInlineInstance = new Chart(canvas.getContext('2d'), {
+            type: 'bar',
+            data: { labels, datasets: [
+                { label: 'আয়', data: incomeData, backgroundColor: '#4CAF50', borderRadius: 4 },
+                { label: 'ব্যয়', data: expenseData, backgroundColor: '#e91e63', borderRadius: 4 }
+            ]},
+            options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } }
+        });
+    }
+
+    // ── Bar Chart Modal ───────────────────────────────────────────────
+    function openBarChartModal() {
+        document.getElementById('barChartModal').classList.add('active');
+        renderBarChart();
+    }
+    function closeBarChartModal() {
+        document.getElementById('barChartModal').classList.remove('active');
+    }
+    function renderBarChart() {
+        const months = ['জানু','ফেব্রু','মার্চ','এপ্রিল','মে','জুন','জুলাই','আগস্ট','সেপ্টে','অক্টো','নভে','ডিসে'];
+        const now = new Date();
+        const labels = [], incomeData = [], expenseData = [];
+        for (let i = 5; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const m = d.getMonth(), y = d.getFullYear();
+            labels.push(months[m] + ' \'' + String(y).slice(2));
+            const mTx = transactions.filter(t => { const td = new Date(t.date+'T00:00:00'); return td.getMonth()===m && td.getFullYear()===y; });
+            incomeData.push(mTx.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0));
+            expenseData.push(mTx.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0));
+        }
+        if (barChartInstance) barChartInstance.destroy();
+        barChartInstance = new Chart(document.getElementById('barChart').getContext('2d'), {
+            type: 'bar',
+            data: { labels, datasets: [
+                { label: 'আয়', data: incomeData, backgroundColor: '#4CAF50', borderRadius: 4 },
+                { label: 'ব্যয়', data: expenseData, backgroundColor: '#e91e63', borderRadius: 4 }
+            ]},
+            options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } }
+        });
+    }
+
+    // ── Budget ────────────────────────────────────────────────────────
+    function openBudgetModal() {
+        const modal = document.getElementById('budgetModal');
+        const container = document.getElementById('budgetInputs');
+        container.innerHTML = '';
+        categories.expense.forEach(cat => {
+            const val = budgets[cat.name] || '';
+            container.innerHTML += `<div class="form-group">
+                <label style="display:flex;align-items:center;gap:6px;">
+                    <span style="width:12px;height:12px;border-radius:50%;background:${cat.color};display:inline-block;"></span>
+                    ${escapeHtml(cat.name)}
+                </label>
+                <input type="number" id="budget-${escapeHtml(cat.name)}" placeholder="মাসিক সীমা (৳)" value="${val}" style="border:2px solid #ddd;border-radius:8px;padding:10px;width:100%;font-size:14px;">
+            </div>`;
+        });
+        modal.classList.add('active');
+    }
+    function closeBudgetModal() {
+        document.getElementById('budgetModal').classList.remove('active');
+    }
+    async function saveBudgets() {
+        showLoading('সংরক্ষণ হচ্ছে...');
+        for (const cat of categories.expense) {
+            const el = document.getElementById('budget-' + cat.name);
+            if (el && el.value) {
+                const amount = parseFloat(el.value);
+                await sb.from('budgets').upsert({ username: currentUser.username, category: cat.name, amount }, { onConflict: 'username,category' });
+                budgets[cat.name] = amount;
+            } else {
+                await sb.from('budgets').delete().eq('username', currentUser.username).eq('category', cat.name);
+                delete budgets[cat.name];
+            }
+        }
+        hideLoading();
+        closeBudgetModal();
+        renderBudgetSection();
+        showToast('✅ বাজেট সংরক্ষিত হয়েছে!');
+    }
+    function renderBudgetSection() {
+        const section = document.getElementById('budgetSection');
+        const bars = document.getElementById('budgetBars');
+        if (!section || !bars) return;
+        const hasBudget = Object.keys(budgets).length > 0;
+        section.classList.toggle('visible', hasBudget);
+        if (!hasBudget) return;
+        const now = new Date();
+        const selM = now.getMonth(), selY = now.getFullYear();
+        const monthExp = transactions.filter(i => {
+            if (i.type !== 'expense') return false;
+            const d = new Date(i.date + 'T00:00:00');
+            return d.getMonth() === selM && d.getFullYear() === selY;
+        });
+        const catExp = {};
+        monthExp.forEach(i => { catExp[i.category||'সাধারণ'] = (catExp[i.category||'সাধারণ']||0) + i.amount; });
+        bars.innerHTML = '';
+        Object.entries(budgets).forEach(([cat, limit]) => {
+            const spent = catExp[cat] || 0;
+            const pct = Math.min((spent/limit)*100, 100).toFixed(0);
+            const over = spent > limit;
+            const color = over ? '#f44336' : spent/limit > 0.8 ? '#ff9800' : '#4caf50';
+            bars.innerHTML += `<div class="budget-item">
+                <div class="budget-label">
+                    <span ${over?'class="budget-warn"':''}>${escapeHtml(cat)}</span>
+                    <span ${over?'class="budget-warn"':''}>৳${spent.toLocaleString('bn-BD')} / ৳${limit.toLocaleString('bn-BD')} (${pct}%)</span>
+                </div>
+                <div class="budget-bar-bg"><div class="budget-bar-fill" style="width:${pct}%;background:${color};"></div></div>
+            </div>`;
+        });
+    }
+
+    // ── Export / Share ────────────────────────────────────────────────
+    function createBackup() {
+        if (transactions.length === 0) { alert('কোনো ডেটা নেই'); return; }
+        const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify({ transactions, categories }, null, 2));
+        const dl = document.createElement('a');
+        dl.setAttribute('href', dataStr);
+        dl.setAttribute('download', 'smart_hisab_' + currentUser.displayName + '_backup_' + new Date().toISOString().split('T')[0] + '.json');
+        dl.click();
+    }
+
+    async function restoreBackup(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                const data = JSON.parse(e.target.result);
+                const txList = Array.isArray(data) ? data : (data.transactions || []);
+                showLoading('রিস্টোর হচ্ছে...');
+                await sb.from('transactions').delete().eq('username', currentUser.username);
+                const rows = txList.map(t => ({ ...t, id: t.id || Date.now().toString(), username: currentUser.username }));
+                if (rows.length > 0) await sb.from('transactions').insert(rows);
+                transactions = rows;
+                render();
+                hideLoading();
+                alert('ব্যাকআপ থেকে রিস্টোর সফল হয়েছে!');
+            } catch(err) {
+                hideLoading();
+                alert('ফাইল আপলোড করতে সমস্যা হয়েছে: ' + err.message);
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    function exportToExcel() {
+        if (transactions.length === 0) { alert('কোনো ডেটা নেই'); return; }
+        const exportData = transactions.map(item => ({
+            'তারিখ': item.date, 'বিবরণ': item.title, 'ক্যাটাগরি': item.category||'সাধারণ',
+            'আয়': item.type==='income'?item.amount:'', 'ব্যয়': item.type==='expense'?item.amount:'', 'নোট': item.note||''
+        }));
+        const ws = XLSX.utils.json_to_sheet(exportData);
+        ws['!cols'] = [{ wch:12 },{ wch:20 },{ wch:15 },{ wch:12 },{ wch:12 },{ wch:25 }];
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'আয় ব্যয়');
+        XLSX.writeFile(wb, 'smart_hisab_' + currentUser.displayName + '_' + new Date().toISOString().split('T')[0] + '.xlsx');
+    }
+
+    function exportPDF() {
+        const selM = parseInt(document.getElementById('filter-month').value);
+        const selY = parseInt(document.getElementById('filter-year').value);
+        const months = ['জানুয়ারি','ফেব্রুয়ারি','মার্চ','এপ্রিল','মে','জুন','জুলাই','আগস্ট','সেপ্টেম্বর','অক্টোবর','নভেম্বর','ডিসেম্বর'];
+        const mTx = transactions.filter(t => {
+            const d = new Date(t.date+'T00:00:00');
+            return d.getMonth()===selM && d.getFullYear()===selY;
+        });
+        const totalIncome = mTx.filter(i=>i.type==='income').reduce((s,i)=>s+i.amount,0);
+        const totalExpense = mTx.filter(i=>i.type==='expense').reduce((s,i)=>s+i.amount,0);
+        const rows = [...mTx].sort((a,b)=>a.date.localeCompare(b.date)).map(t =>
+            `<tr><td>${t.date}</td><td>${t.title}</td><td>${t.category||'সাধারণ'}</td>
+             <td style="color:green">${t.type==='income'?'৳'+t.amount:''}</td>
+             <td style="color:red">${t.type==='expense'?'৳'+t.amount:''}</td>
+             <td style="font-size:11px;color:#888">${t.note||''}</td></tr>`
+        ).join('');
+        const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>স্মার্ট হিসাব</title>
+        <style>body{font-family:Arial,sans-serif;padding:20px}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{border:1px solid #ddd;padding:8px;font-size:13px}th{background:#008080;color:white}.summary{display:flex;gap:16px;margin:16px 0}.scard{padding:12px 20px;border-radius:10px;color:white;text-align:center}.scard h3{margin:0;font-size:20px}</style>
+        </head><body>
+        <h1>📊 স্মার্ট হিসাব — মাসিক রিপোর্ট</h1>
+        <p>ব্যবহারকারী: <b>${currentUser.displayName}</b> | মাস: <b>${months[selM]} ${selY}</b></p>
+        <div class="summary">
+            <div class="scard" style="background:#0e8a16"><h3>৳${totalIncome.toLocaleString()}</h3><p>মোট আয়</p></div>
+            <div class="scard" style="background:#c90a4d"><h3>৳${totalExpense.toLocaleString()}</h3><p>মোট ব্যয়</p></div>
+            <div class="scard" style="background:#008080"><h3>৳${(totalIncome-totalExpense).toLocaleString()}</h3><p>ব্যালেন্স</p></div>
+        </div>
+        <table><thead><tr><th>তারিখ</th><th>বিবরণ</th><th>ক্যাটাগরি</th><th>আয়</th><th>ব্যয়</th><th>নোট</th></tr></thead>
+        <tbody>${rows}</tbody></table>
+        <p style="margin-top:20px;font-size:11px;color:#aaa">তৈরি: ${new Date().toLocaleString()}</p>
+        <\/body><\/html>`;
+        const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `হিসাব_${currentUser.displayName}_${months[selM]}_${selY}.html`;
+        a.click();
+        showToast('📄 রিপোর্ট ডাউনলোড হচ্ছে...');
+    }
+
+    function shareSummary() {
+        const now = new Date();
+        const todayStr = now.toISOString().split('T')[0];
+        const mTx = transactions.filter(t => t.date === todayStr);
+        const totalIncome = mTx.filter(i=>i.type==='income').reduce((s,i)=>s+i.amount,0);
+        const totalExpense = mTx.filter(i=>i.type==='expense').reduce((s,i)=>s+i.amount,0);
+        const text = `📊 স্মার্ট হিসাব — আজকের\n━━━━━━━━━━━━━━\n💚 মোট আয়:   ৳${totalIncome.toLocaleString('bn-BD')}\n❤️ মোট ব্যয়: ৳${totalExpense.toLocaleString('bn-BD')}\n💰 ব্যালেন্স: ৳${(totalIncome-totalExpense).toLocaleString('bn-BD')}\n━━━━━━━━━━━━━━\n📌 মোট এন্ট্রি: ${mTx.length}টি`;
+        if (navigator.share) { navigator.share({ title: 'স্মার্ট হিসাব', text }); }
+        else if (navigator.clipboard) { navigator.clipboard.writeText(text); showToast('📋 ক্লিপবোর্ডে কপি হয়েছে!'); }
+        else { showToast('শেয়ার সাপোর্ট নেই'); }
+    }
+
+    // ── Dark Mode ─────────────────────────────────────────────────────
+    function toggleDarkMode() {
+        darkMode = !darkMode;
+        document.body.classList.toggle('dark', darkMode);
+        const lbl = document.getElementById('darkModeLabel');
+        if (lbl) lbl.textContent = darkMode ? '☀️ লাইট মোড' : '🌙 ডার্ক মোড';
+    }
+
+    // ── Toast ─────────────────────────────────────────────────────────
+    function showToast(msg) {
+        const t = document.getElementById('shareToast');
+        if (!t) return;
+        t.textContent = msg;
+        t.classList.add('show');
+        setTimeout(() => t.classList.remove('show'), 2500);
+    }
+
+</script>
+<!-- Bar Chart Modal -->
+<div class="chart-modal" id="barChartModal">
+    <div class="chart-modal-content">
+        <span class="close-panel" onclick="closeBarChartModal()">×</span>
+        <div class="chart-modal-title">📈 মাসভিত্তিক আয় ও ব্যয়</div>
+        <canvas id="barChart" style="max-height:300px;"></canvas>
+    </div>
+</div>
+
+<!-- Budget Modal -->
+<div class="budget-modal" id="budgetModal">
+    <div class="budget-modal-content">
+        <span class="close-panel" onclick="closeBudgetModal()">×</span>
+        <div style="text-align:center; font-size:17px; font-weight:bold; margin-bottom:16px;">📊 মাসিক বাজেট নির্ধারণ</div>
+        <p style="font-size:12px; color:#888; text-align:center; margin-bottom:14px;">প্রতিটি ব্যয় ক্যাটাগরির জন্য মাসিক সীমা নির্ধারণ করুন</p>
+        <div id="budgetInputs"></div>
+        <button class="submit-btn" onclick="saveBudgets()">বাজেট সংরক্ষণ করুন</button>
+    </div>
+</div>
+
+<!-- Toast -->
+<div class="share-toast" id="shareToast"></div>
+
+</body>
+</html>
